@@ -1,0 +1,19 @@
+# TODO: Pin exact versions after initial setup.
+fastapi
+uvicorn[standard]
+pydantic
+pydantic-settings
+langgraph
+langchain
+langchain-groq
+langchain-community
+langsmith
+asyncpg
+sqlalchemy[asyncio]
+qdrant-client
+pypdf
+openpyxl
+python-multipart
+pytest
+pytest-asyncio
+httpx
