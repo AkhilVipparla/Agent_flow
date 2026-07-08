@@ -15,6 +15,9 @@ class AgentState(TypedDict):
     file_results: Annotated[list[dict[str, Any]], operator.add]
     uploaded_files: list[str]
     citations: Annotated[list[Citation], operator.add]
+    # Per-node execution records ({agent_name, status, duration_ms}); appended
+    # by the node wrappers in graph/nodes.py as each agent finishes.
+    agent_steps: Annotated[list[dict[str, Any]], operator.add]
     confidence_score: float
     final_report: str
     retry_count: int
@@ -34,6 +37,7 @@ def initial_state(query: str) -> AgentState:
         file_results=[],
         uploaded_files=[],
         citations=[],
+        agent_steps=[],
         confidence_score=0.0,
         final_report="",
         retry_count=0,

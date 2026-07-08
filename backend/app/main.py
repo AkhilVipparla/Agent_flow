@@ -10,6 +10,8 @@ from app.api.routes import documents, health, reports, research
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from app.services.qdrant_service import get_vector_search_service
+    await get_vector_search_service().ensure_collection()
     yield
 
 

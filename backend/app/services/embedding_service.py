@@ -59,12 +59,9 @@ class FastEmbedService:
 # Factory
 # ---------------------------------------------------------------------------
 
-import os
-
-
 def get_embedding_service() -> EmbeddingProtocol:
-    use_mock = os.getenv("USE_MOCK_VECTOR_SEARCH", "true").lower() not in ("false", "0", "no")
-    if use_mock:
+    from app.config import settings
+    if settings.use_mock_vector_search:
         logger.info("EmbeddingService: using MockEmbeddingService")
         return MockEmbeddingService()
     logger.info("EmbeddingService: using FastEmbedService")

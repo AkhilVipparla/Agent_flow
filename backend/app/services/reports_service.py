@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from typing import Any
 
@@ -8,9 +9,23 @@ from app.services.postgres_service import DatabaseProtocol
 
 
 async def list_reports(db: DatabaseProtocol) -> ReportListResponse:
-    rows = await db.fetch_many("SELECT * FROM reports")
+    rows = await db.fetch_many("SELECT * FROM reports ORDER BY created_at DESC")
     summaries = [_row_to_summary(row) for row in rows]
     return ReportListResponse(reports=summaries, total=len(summaries))
+
+
+async def delete_report(report_id: str, db: DatabaseProtocol) -> None:
+    await db.execute("DELETE FROM reports WHERE id = $1", (report_id,))
+
+
+def _load_json(value: Any, default: Any) -> Any:
+    """asyncpg returns JSONB columns as strings; mock rows hold Python objects."""
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            return default
+    return value if value is not None else default
 
 
 async def get_report(report_id: str, db: DatabaseProtocol) -> ReportResponse | None:
@@ -32,8 +47,8 @@ def _row_to_report(row: dict[str, Any]) -> ReportResponse:
         id=row.get("id", ""),
         query=row.get("query", ""),
         executive_summary=row.get("executive_summary", ""),
-        key_findings=row.get("key_findings") or [],
-        citations=row.get("citations") or [],
+        key_findings=_load_json(row.get("key_findings"), []),
+        citations=_load_json(row.get("citations"), []),
         confidence_score=row.get("confidence_score", 0.0),
         created_at=_parse_dt(row.get("created_at")),
     )

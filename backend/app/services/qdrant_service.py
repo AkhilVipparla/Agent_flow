@@ -28,6 +28,8 @@ class VectorSearchProtocol(Protocol):
 
     async def delete(self, id: str) -> None: ...
 
+    async def ensure_collection(self) -> None: ...
+
 
 # ---------------------------------------------------------------------------
 # Mock — returns deterministic enterprise-looking chunks; no Qdrant required.
@@ -133,6 +135,9 @@ class MockVectorSearch:
     async def delete(self, id: str) -> None:
         logger.info("MockVectorSearch.delete called for id=%s (no-op)", id)
 
+    async def ensure_collection(self) -> None:
+        pass
+
 
 # ---------------------------------------------------------------------------
 # Real — wraps qdrant-client; lazy init so import never crashes.
@@ -151,6 +156,19 @@ class QdrantVectorSearch:
             from qdrant_client import AsyncQdrantClient
             self._client = AsyncQdrantClient(url=self._url)
         return self._client
+
+    # Vector size must match the embedding model (BAAI/bge-small-en-v1.5 → 384).
+    _VECTOR_SIZE = 384
+
+    async def ensure_collection(self) -> None:
+        from qdrant_client.models import Distance, VectorParams
+        client = self._get_client()
+        if not await client.collection_exists(self._collection):
+            await client.create_collection(
+                collection_name=self._collection,
+                vectors_config=VectorParams(size=self._VECTOR_SIZE, distance=Distance.COSINE),
+            )
+            logger.info("Qdrant collection %r created", self._collection)
 
     async def similarity_search(
         self,
@@ -177,12 +195,25 @@ class QdrantVectorSearch:
             for hit in hits
         ]
 
+    @staticmethod
+    def _point_id(id: str) -> str:
+        # Qdrant only accepts UUID or integer point IDs; app-level ids like
+        # "{doc_id}-chunk-0" are mapped to a deterministic UUID.
+        import uuid
+        return str(uuid.uuid5(uuid.NAMESPACE_URL, id))
+
     async def upsert(self, id: str, vector: list[float], content: str, metadata: dict[str, Any]) -> None:
         from qdrant_client.models import PointStruct
         client = self._get_client()
         await client.upsert(
             collection_name=self._collection,
-            points=[PointStruct(id=id, vector=vector, payload={"content": content, **metadata})],
+            points=[
+                PointStruct(
+                    id=self._point_id(id),
+                    vector=vector,
+                    payload={"content": content, "chunk_id": id, **metadata},
+                )
+            ],
         )
 
     async def delete(self, id: str) -> None:
@@ -190,7 +221,7 @@ class QdrantVectorSearch:
         client = self._get_client()
         await client.delete(
             collection_name=self._collection,
-            points_selector=PointIdsList(points=[id]),
+            points_selector=PointIdsList(points=[self._point_id(id)]),
         )
 
 
@@ -198,14 +229,10 @@ class QdrantVectorSearch:
 # Factory
 # ---------------------------------------------------------------------------
 
-import os
-
-
 def get_vector_search_service() -> VectorSearchProtocol:
-    use_mock = os.getenv("USE_MOCK_VECTOR_SEARCH", "true").lower() not in ("false", "0", "no")
-    if use_mock:
+    from app.config import settings
+    if settings.use_mock_vector_search:
         logger.info("VectorSearch: using MockVectorSearch")
         return MockVectorSearch()
-    from app.config import settings
     logger.info("VectorSearch: connecting to Qdrant at %s", settings.qdrant_url)
     return QdrantVectorSearch(settings.qdrant_url, settings.qdrant_collection)

@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel
+from app.schemas.common import CamelModel
 
 
-class DocumentUploadResponse(BaseModel):
+class DocumentUploadResponse(CamelModel):
     id: str
     filename: str
     status: str
@@ -13,7 +13,7 @@ class DocumentUploadResponse(BaseModel):
     created_at: datetime
 
 
-class DocumentResponse(BaseModel):
+class DocumentResponse(CamelModel):
     id: str
     filename: str
     file_type: str

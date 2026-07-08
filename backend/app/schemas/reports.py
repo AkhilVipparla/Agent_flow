@@ -2,19 +2,18 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel
-
 from app.schemas.agents import Citation
+from app.schemas.common import CamelModel
 
 
-class ReportSummary(BaseModel):
+class ReportSummary(CamelModel):
     id: str
     query: str
     confidence_score: float
     created_at: datetime
 
 
-class ReportResponse(BaseModel):
+class ReportResponse(CamelModel):
     id: str
     query: str
     executive_summary: str
@@ -24,6 +23,6 @@ class ReportResponse(BaseModel):
     created_at: datetime
 
 
-class ReportListResponse(BaseModel):
+class ReportListResponse(CamelModel):
     reports: list[ReportSummary]
     total: int

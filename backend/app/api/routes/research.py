@@ -11,8 +11,8 @@ router = APIRouter(tags=["research"])
 
 
 @router.post("/query", response_model=AgentRunResponse)
-async def submit_query(request: ResearchRequest) -> AgentRunResponse:
-    return await run_research(request.query, request.uploaded_files or None)
+async def submit_query(request: ResearchRequest, db: DbDep) -> AgentRunResponse:
+    return await run_research(request.query, db, request.uploaded_files or None)
 
 
 @router.get("/runs", response_model=list[AgentRunResponse])

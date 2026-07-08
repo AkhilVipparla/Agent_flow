@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from app.schemas.common import CamelModel
 
-class Citation(BaseModel):
+
+class Citation(CamelModel):
     source: str
     url: str | None = None
     page: int | None = None
@@ -15,7 +17,7 @@ class ExecutionPlan(BaseModel):
     reasoning: str
 
 
-class EvidenceItem(BaseModel):
+class EvidenceItem(CamelModel):
     agent: str
     content: str
     citations: list[Citation] = Field(default_factory=list)

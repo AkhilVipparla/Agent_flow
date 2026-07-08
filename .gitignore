@@ -15,6 +15,7 @@ dist/
 docs/
 .claude/
 claude.md
+status.md
 .env
 *.local
 

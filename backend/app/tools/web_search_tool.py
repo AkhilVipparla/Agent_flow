@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from typing import Protocol, runtime_checkable
 
 from app.schemas.search import WebSearchResult
@@ -112,11 +111,10 @@ _tool: WebSearchProtocol | None = None
 
 
 def get_web_search_tool() -> WebSearchProtocol:
-    use_mock = os.getenv("USE_MOCK_SEARCH", "true").lower() not in ("false", "0", "no")
-    if use_mock:
+    from app.config import settings
+    if settings.use_mock_search:
         logger.info("WebSearchTool: using MockWebSearch")
         return MockWebSearch()
-    from app.config import settings
     logger.info("WebSearchTool: using TavilyWebSearch")
     return TavilyWebSearch(api_key=settings.tavily_api_key)
 

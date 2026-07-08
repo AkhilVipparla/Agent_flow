@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any, Protocol, runtime_checkable
 
 logger = logging.getLogger(__name__)
@@ -22,6 +21,12 @@ class DatabaseProtocol(Protocol):
         params: tuple[Any, ...] | None = None,
     ) -> dict[str, Any] | None: ...
 
+    async def execute(
+        self,
+        sql: str,
+        params: tuple[Any, ...] | None = None,
+    ) -> None: ...
+
     async def close(self) -> None: ...
 
 
@@ -30,11 +35,58 @@ class DatabaseProtocol(Protocol):
 # ---------------------------------------------------------------------------
 
 _MOCK_AGENT_RUNS: list[dict[str, Any]] = [
-    {"id": "run-001", "agent_name": "rag",    "status": "complete", "duration_ms": 1240, "evidence_count": 5,  "report_id": "rep-001"},
-    {"id": "run-002", "agent_name": "sql",    "status": "complete", "duration_ms": 890,  "evidence_count": 3,  "report_id": "rep-001"},
-    {"id": "run-003", "agent_name": "search", "status": "complete", "duration_ms": 2100, "evidence_count": 4,  "report_id": "rep-002"},
-    {"id": "run-004", "agent_name": "rag",    "status": "failed",   "duration_ms": 300,  "evidence_count": 0,  "report_id": "rep-003"},
-    {"id": "run-005", "agent_name": "critic", "status": "complete", "duration_ms": 540,  "evidence_count": 0,  "report_id": "rep-002"},
+    {
+        "id": "run-001",
+        "query": "Q4 revenue breakdown",
+        "status": "complete",
+        "agents_executed": ["planner", "rag", "sql", "critic", "report"],
+        "steps": [
+            {"agent_name": "planner", "status": "complete", "duration_ms": 820, "evidence_count": 0},
+            {"agent_name": "rag", "status": "complete", "duration_ms": 1760, "evidence_count": 5},
+            {"agent_name": "sql", "status": "complete", "duration_ms": 1430, "evidence_count": 3},
+            {"agent_name": "critic", "status": "complete", "duration_ms": 560, "evidence_count": 0},
+            {"agent_name": "report", "status": "complete", "duration_ms": 1180, "evidence_count": 0},
+        ],
+        "evidence": {
+            "retrieved_documents": [],
+            "sql_results": [],
+            "search_results": [],
+            "citations": [],
+            "confidence_score": 0.91,
+        },
+        "final_report": "## Executive Summary\n\nQ4 revenue reached $142M, up 23% year-over-year.",
+        "confidence_score": 0.91,
+        "created_at": "2025-01-15T10:23:00Z",
+    },
+    {
+        "id": "run-002",
+        "query": "Customer churn analysis",
+        "status": "complete",
+        "agents_executed": ["planner", "rag", "search", "critic", "report"],
+        "steps": [
+            {"agent_name": "planner", "status": "complete", "duration_ms": 910, "evidence_count": 0},
+            {"agent_name": "rag", "status": "complete", "duration_ms": 2100, "evidence_count": 4},
+            {"agent_name": "search", "status": "complete", "duration_ms": 2400, "evidence_count": 4},
+            {"agent_name": "critic", "status": "complete", "duration_ms": 490, "evidence_count": 0},
+            {"agent_name": "report", "status": "complete", "duration_ms": 1320, "evidence_count": 0},
+        ],
+        "evidence": {
+            "retrieved_documents": [],
+            "sql_results": [],
+            "search_results": [],
+            "citations": [],
+            "confidence_score": 0.85,
+        },
+        "final_report": "## Executive Summary\n\nChurn decreased to 4.2% annually, concentrated in SMB accounts.",
+        "confidence_score": 0.85,
+        "created_at": "2025-01-18T14:05:00Z",
+    },
+]
+
+_MOCK_DOCUMENTS: list[dict[str, Any]] = [
+    {"id": "doc-001", "filename": "Q4_2024_Financial_Report.pdf", "file_type": "pdf", "chunk_count": 48, "created_at": "2025-01-10T08:00:00Z"},
+    {"id": "doc-002", "filename": "Customer_Churn_H2_2024.pdf", "file_type": "pdf", "chunk_count": 31, "created_at": "2025-01-12T11:30:00Z"},
+    {"id": "doc-003", "filename": "AWS_Cost_Explorer_Jan2025.csv", "file_type": "csv", "chunk_count": 214, "created_at": "2025-01-14T09:15:00Z"},
 ]
 
 _MOCK_USAGE: list[dict[str, Any]] = [
@@ -45,10 +97,49 @@ _MOCK_USAGE: list[dict[str, Any]] = [
 ]
 
 _MOCK_REPORTS: list[dict[str, Any]] = [
-    {"id": "rep-001", "query": "Q4 revenue breakdown",           "confidence_score": 0.91, "created_at": "2025-01-15T10:23:00Z"},
-    {"id": "rep-002", "query": "Customer churn analysis",        "confidence_score": 0.85, "created_at": "2025-01-18T14:05:00Z"},
-    {"id": "rep-003", "query": "Infrastructure cost optimisation","confidence_score": 0.72, "created_at": "2025-01-20T09:47:00Z"},
-    {"id": "rep-004", "query": "Product roadmap feasibility",    "confidence_score": 0.88, "created_at": "2025-01-22T16:30:00Z"},
+    {
+        "id": "rep-001",
+        "query": "Q4 revenue breakdown",
+        "executive_summary": "Q4 revenue reached $142M, a 23% year-over-year increase driven by SaaS subscription growth.",
+        "key_findings": [
+            "Revenue reached $142M (+23% YoY).",
+            "Gross margin improved to 68%.",
+            "Operating income was $53M.",
+        ],
+        "citations": [
+            {"source": "Q4 2024 Earnings Report", "url": None, "page": 4, "excerpt": "Revenue reached $142M, a 23% year-over-year increase."},
+        ],
+        "confidence_score": 0.91,
+        "created_at": "2025-01-15T10:23:00Z",
+    },
+    {
+        "id": "rep-002",
+        "query": "Customer churn analysis",
+        "executive_summary": "Annual churn decreased to 4.2%, with NPS rising to 72 on the back of reliability and support improvements.",
+        "key_findings": [
+            "Churn rate decreased to 4.2% annually.",
+            "Net Promoter Score rose to 72, up from 61 in 2023.",
+        ],
+        "citations": [
+            {"source": "Customer Satisfaction Survey 2024", "url": None, "page": 1, "excerpt": "Churn rate decreased to 4.2% annually."},
+        ],
+        "confidence_score": 0.85,
+        "created_at": "2025-01-18T14:05:00Z",
+    },
+    {
+        "id": "rep-003",
+        "query": "Infrastructure cost optimisation",
+        "executive_summary": "The Kubernetes migration reduced infrastructure costs by 31% while maintaining 99.97% uptime.",
+        "key_findings": [
+            "Infrastructure costs down 31% after Kubernetes migration.",
+            "Platform processed 1.4 billion API calls in Q4 2024 with 99.97% uptime.",
+        ],
+        "citations": [
+            {"source": "Engineering Infrastructure Report Q4 2024", "url": None, "page": 3, "excerpt": "The migration to Kubernetes reduced infrastructure costs by 31%."},
+        ],
+        "confidence_score": 0.72,
+        "created_at": "2025-01-20T09:47:00Z",
+    },
 ]
 
 
@@ -64,6 +155,8 @@ class MockDatabaseService:
         sql_lower = sql.lower()
         if "agent_runs" in sql_lower or "agentrun" in sql_lower:
             return _MOCK_AGENT_RUNS[:limit]
+        if "documents" in sql_lower:
+            return _MOCK_DOCUMENTS[:limit]
         if "usage" in sql_lower:
             return _MOCK_USAGE[:limit]
         if "report" in sql_lower:
@@ -82,8 +175,22 @@ class MockDatabaseService:
         sql: str,
         params: tuple[Any, ...] | None = None,
     ) -> dict[str, Any] | None:
-        rows = await self.fetch_many(sql, params, limit=1)
+        rows = await self.fetch_many(sql, params, limit=100)
+        # Lookups by id pass the id as the first parameter — honour it so
+        # "not found" paths behave like the real database.
+        if params and rows and "id" in rows[0]:
+            for row in rows:
+                if row.get("id") == params[0]:
+                    return row
+            return None
         return rows[0] if rows else None
+
+    async def execute(
+        self,
+        sql: str,
+        params: tuple[Any, ...] | None = None,
+    ) -> None:
+        logger.info("MockDatabaseService.execute (no-op): %s", sql.split()[0] if sql else "")
 
     async def close(self) -> None:
         pass
@@ -129,6 +236,15 @@ class PostgresService:
             row = await conn.fetchrow(sql, *(params or ()))
             return dict(row) if row else None
 
+    async def execute(
+        self,
+        sql: str,
+        params: tuple[Any, ...] | None = None,
+    ) -> None:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(sql, *(params or ()))
+
     async def close(self) -> None:
         if self._pool is not None:
             await self._pool.close()
@@ -140,10 +256,9 @@ class PostgresService:
 # ---------------------------------------------------------------------------
 
 def get_database_service() -> DatabaseProtocol:
-    use_mock = os.getenv("USE_MOCK_SQL", "true").lower() not in ("false", "0", "no")
-    if use_mock:
+    from app.config import settings
+    if settings.use_mock_sql:
         logger.info("DatabaseService: using MockDatabaseService")
         return MockDatabaseService()
-    from app.config import settings
     logger.info("DatabaseService: connecting to PostgreSQL at %s", settings.database_url)
     return PostgresService(settings.database_url)

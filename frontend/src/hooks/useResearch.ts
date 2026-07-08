@@ -10,17 +10,29 @@ function idleSteps(): AgentStep[] {
   return ALL_AGENTS.map((agentName) => ({ agentName, status: 'idle' as AgentStatus }));
 }
 
-function applyStep(
-  run: AgentRunResponse,
-  name: AgentName,
-  status: AgentStatus,
-  durationMs?: number,
-): AgentRunResponse {
+function pendingRun(query: string): AgentRunResponse {
+  return {
+    id: 'pending',
+    query,
+    agentsExecuted: [],
+    steps: idleSteps(),
+    evidence: {
+      retrievedDocuments: [],
+      sqlResults: [],
+      searchResults: [],
+      citations: [],
+      confidenceScore: 0,
+    },
+    finalReport: '',
+    status: 'running',
+    createdAt: new Date().toISOString(),
+  };
+}
+
+function applyStep(run: AgentRunResponse, name: AgentName, status: AgentStatus): AgentRunResponse {
   return {
     ...run,
-    steps: run.steps.map((s) =>
-      s.agentName === name ? { ...s, status, durationMs } : s,
-    ),
+    steps: run.steps.map((s) => (s.agentName === name ? { ...s, status } : s)),
   };
 }
 
@@ -37,58 +49,44 @@ export function useResearch() {
 
   const { mutate, isPending, error } = useMutation({
     mutationFn: submitResearchQuery,
-    onMutate: () => {
+    // While the backend runs the graph, show an indeterminate timeline:
+    // planner first, then the evidence agents spin until the response lands.
+    onMutate: (query: string) => {
       clearTimers();
-      setCurrentRun(null);
-    },
-    onSuccess: (run) => {
-      const initial: AgentRunResponse = { ...run, status: 'running', steps: idleSteps() };
-      setCurrentRun(initial);
+      setCurrentRun(pendingRun(query));
 
       const schedule = (fn: () => void, ms: number) => {
         timersRef.current.push(setTimeout(fn, ms));
       };
 
-      // Planner starts
       schedule(() => setCurrentRun((r) => r && applyStep(r, 'planner', 'running')), 100);
-
-      // Planner done → evidence agents start in parallel
       schedule(() => setCurrentRun((r) => {
         if (!r) return r;
-        let s = applyStep(r, 'planner', 'complete', 820);
+        let s = applyStep(r, 'planner', 'complete');
         s = applyStep(s, 'rag', 'running');
         s = applyStep(s, 'sql', 'running');
         s = applyStep(s, 'search', 'running');
         return s;
-      }), 1000);
-
-      // Evidence agents done → critic starts
-      schedule(() => setCurrentRun((r) => {
-        if (!r) return r;
-        let s = applyStep(r, 'rag', 'complete', 1760);
-        s = applyStep(s, 'sql', 'complete', 1430);
-        s = applyStep(s, 'search', 'complete', 2080);
-        s = applyStep(s, 'critic', 'running');
-        return s;
-      }), 2900);
-
-      // Critic done → report starts
-      schedule(() => setCurrentRun((r) => {
-        if (!r) return r;
-        let s = applyStep(r, 'critic', 'complete', 560);
-        s = applyStep(s, 'report', 'running');
-        return s;
-      }), 3700);
-
-      // Report done → run complete, reveal all data
-      schedule(() => setCurrentRun((r) => {
-        if (!r) return r;
-        const s = applyStep(r, 'report', 'complete', 1180);
-        return { ...s, status: 'complete' };
-      }), 4900);
+      }), 1500);
+    },
+    // Replace the placeholder with the real run: actual steps, durations,
+    // evidence, and the generated report.
+    onSuccess: (run) => {
+      clearTimers();
+      setCurrentRun(run);
     },
     onError: () => {
       clearTimers();
+      setCurrentRun((r) => {
+        if (!r) return r;
+        return {
+          ...r,
+          status: 'failed',
+          steps: r.steps.map((s) =>
+            s.status === 'running' ? { ...s, status: 'failed' as AgentStatus } : s,
+          ),
+        };
+      });
     },
   });
 

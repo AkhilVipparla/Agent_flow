@@ -20,6 +20,11 @@ class Settings(BaseSettings):
     # Search
     tavily_api_key: str = ""
 
+    # Mock toggles — true keeps the service mocked (no external dependency).
+    use_mock_sql: bool = True
+    use_mock_vector_search: bool = True
+    use_mock_search: bool = True
+
     # LangSmith
     langsmith_api_key: str = ""
     langsmith_project: str = "agentflow-ai"

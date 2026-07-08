@@ -11,6 +11,7 @@ langsmith
 asyncpg
 sqlalchemy[asyncio]
 qdrant-client
+fastembed
 pypdf
 openpyxl
 python-multipart

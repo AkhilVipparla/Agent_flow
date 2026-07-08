@@ -1,22 +1,16 @@
 import type { ReportListResponse, ReportResponse } from '../types/report';
-import { MOCK_FULL_REPORTS, MOCK_REPORT_SUMMARIES } from './mockData';
-
-const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+import { apiClient } from './api';
 
 export async function listReports(): Promise<ReportListResponse> {
-  await delay(200);
-  return { reports: MOCK_REPORT_SUMMARIES, total: MOCK_REPORT_SUMMARIES.length };
+  const { data } = await apiClient.get<ReportListResponse>('/reports');
+  return data;
 }
 
 export async function getReport(id: string): Promise<ReportResponse> {
-  await delay(150);
-  const report = MOCK_FULL_REPORTS[id];
-  if (!report) throw new Error(`Report not found: ${id}`);
-  return report;
+  const { data } = await apiClient.get<ReportResponse>(`/reports/${id}`);
+  return data;
 }
 
 export async function deleteReportById(id: string): Promise<void> {
-  await delay(150);
-  // Mock: no-op — in production this calls DELETE /reports/{id}
-  console.log('deleteReport', id);
+  await apiClient.delete(`/reports/${id}`);
 }

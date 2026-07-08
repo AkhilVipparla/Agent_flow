@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 from app.graph.state import AgentState
@@ -81,38 +82,43 @@ def _get_report():
 # ---------------------------------------------------------------------------
 # Node functions — one per agent.
 # Each node delegates entirely to the agent; no reasoning logic lives here.
+# The wrapper times the agent and appends an execution record to
+# state.agent_steps so the API can report real per-agent progress.
 # ---------------------------------------------------------------------------
 
+async def _timed_run(agent_name: str, agent, state: AgentState) -> dict[str, Any]:
+    logger.debug("Executing %s node", agent_name)
+    started = time.perf_counter()
+    update = await agent.safe_run(state)
+    duration_ms = int((time.perf_counter() - started) * 1000)
+    status = "failed" if update.get("error") else "complete"
+    step = {"agent_name": agent_name, "status": status, "duration_ms": duration_ms}
+    return {**update, "agent_steps": [step]}
+
+
 async def planner_node(state: AgentState) -> dict[str, Any]:
-    logger.debug("Executing planner_node")
-    return await _get_planner().safe_run(state)
+    return await _timed_run("planner", _get_planner(), state)
 
 
 async def rag_node(state: AgentState) -> dict[str, Any]:
-    logger.debug("Executing rag_node")
-    return await _get_rag().safe_run(state)
+    return await _timed_run("rag", _get_rag(), state)
 
 
 async def sql_node(state: AgentState) -> dict[str, Any]:
-    logger.debug("Executing sql_node")
-    return await _get_sql().safe_run(state)
+    return await _timed_run("sql", _get_sql(), state)
 
 
 async def search_node(state: AgentState) -> dict[str, Any]:
-    logger.debug("Executing search_node")
-    return await _get_search().safe_run(state)
+    return await _timed_run("search", _get_search(), state)
 
 
 async def file_node(state: AgentState) -> dict[str, Any]:
-    logger.debug("Executing file_node")
-    return await _get_file().safe_run(state)
+    return await _timed_run("file", _get_file(), state)
 
 
 async def critic_node(state: AgentState) -> dict[str, Any]:
-    logger.debug("Executing critic_node")
-    return await _get_critic().safe_run(state)
+    return await _timed_run("critic", _get_critic(), state)
 
 
 async def report_node(state: AgentState) -> dict[str, Any]:
-    logger.debug("Executing report_node")
-    return await _get_report().safe_run(state)
+    return await _timed_run("report", _get_report(), state)

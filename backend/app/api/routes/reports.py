@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException
 
 from app.api.dependencies import DbDep
 from app.schemas.reports import ReportListResponse, ReportResponse
+from app.services.reports_service import delete_report as delete_report_row
 from app.services.reports_service import get_report, list_reports
 
 router = APIRouter(tags=["reports"])
@@ -27,3 +28,4 @@ async def delete_report(report_id: str, db: DbDep) -> None:
     result = await get_report(report_id, db)
     if result is None:
         raise HTTPException(status_code=404, detail="Report not found")
+    await delete_report_row(report_id, db)

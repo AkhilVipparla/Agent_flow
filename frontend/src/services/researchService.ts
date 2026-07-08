@@ -1,21 +1,17 @@
 import type { AgentRunResponse } from '../types/research';
-import { buildMockRun, MOCK_RUNS } from './mockData';
-
-const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+import { apiClient } from './api';
 
 export async function submitResearchQuery(query: string): Promise<AgentRunResponse> {
-  await delay(300);
-  return buildMockRun(query);
+  const { data } = await apiClient.post<AgentRunResponse>('/query', { query });
+  return data;
 }
 
 export async function listAgentRuns(): Promise<AgentRunResponse[]> {
-  await delay(200);
-  return MOCK_RUNS;
+  const { data } = await apiClient.get<AgentRunResponse[]>('/runs');
+  return data;
 }
 
 export async function getAgentRun(id: string): Promise<AgentRunResponse> {
-  await delay(150);
-  const run = MOCK_RUNS.find((r) => r.id === id);
-  if (!run) throw new Error(`Run not found: ${id}`);
-  return run;
+  const { data } = await apiClient.get<AgentRunResponse>(`/runs/${id}`);
+  return data;
 }
