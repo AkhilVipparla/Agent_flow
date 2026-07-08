@@ -146,15 +146,16 @@ class MockVectorSearch:
 class QdrantVectorSearch:
     """Real Qdrant implementation. Requires a running Qdrant instance."""
 
-    def __init__(self, url: str, collection: str) -> None:
+    def __init__(self, url: str, collection: str, api_key: str = "") -> None:
         self._url = url
         self._collection = collection
+        self._api_key = api_key
         self._client = None
 
     def _get_client(self):
         if self._client is None:
             from qdrant_client import AsyncQdrantClient
-            self._client = AsyncQdrantClient(url=self._url)
+            self._client = AsyncQdrantClient(url=self._url, api_key=self._api_key or None)
         return self._client
 
     # Vector size must match the embedding model (BAAI/bge-small-en-v1.5 → 384).
@@ -235,4 +236,4 @@ def get_vector_search_service() -> VectorSearchProtocol:
         logger.info("VectorSearch: using MockVectorSearch")
         return MockVectorSearch()
     logger.info("VectorSearch: connecting to Qdrant at %s", settings.qdrant_url)
-    return QdrantVectorSearch(settings.qdrant_url, settings.qdrant_collection)
+    return QdrantVectorSearch(settings.qdrant_url, settings.qdrant_collection, settings.qdrant_api_key)

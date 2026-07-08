@@ -16,6 +16,7 @@ docs/
 .claude/
 claude.md
 status.md
+setup.md
 .env
 *.local
 

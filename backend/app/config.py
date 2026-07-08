@@ -7,9 +7,10 @@ class Settings(BaseSettings):
     # Database
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/agentflow"
 
-    # Qdrant
+    # Qdrant — api_key is only needed for Qdrant Cloud; leave empty for local.
     qdrant_url: str = "http://localhost:6333"
     qdrant_collection: str = "agentflow_docs"
+    qdrant_api_key: str = ""
 
     # Groq
     groq_api_key: str = ""
