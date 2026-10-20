@@ -1,15 +1,53 @@
 from functools import lru_cache
 
-from langchain_groq import ChatGroq
+from langchain_openai import ChatOpenAI
 
 from app.config import settings
+from app.services.request_context import LLMCredentials, llm_credentials
+
+
+class LLMNotConfiguredError(RuntimeError):
+    """Raised when no LLM credentials are available for the current request."""
 
 
 @lru_cache(maxsize=1)
-def get_llm() -> ChatGroq:
-    return ChatGroq(
-        api_key=settings.groq_api_key,
-        model=settings.groq_model,
-        temperature=settings.groq_temperature,
-        max_tokens=settings.groq_max_tokens,
+def _default_llm() -> ChatOpenAI:
+    """Server-side default: Gemini via a local OpenAI-compatible proxy (gemini-web2api).
+
+    The proxy ignores `tools`/`tool_choice` (it scrapes Gemini's web UI, which has
+    no function-calling concept), so structured output must use `method="json_mode"`
+    everywhere instead of the default tool-calling strategy — see each agent's
+    `with_structured_output(..., method="json_mode")` call.
+    """
+    return ChatOpenAI(
+        api_key=settings.gemini_api_key,
+        base_url=settings.gemini_base_url,
+        model=settings.gemini_model,
+        temperature=settings.gemini_temperature,
+        max_tokens=settings.gemini_max_tokens,
     )
+
+
+@lru_cache(maxsize=16)
+def _user_llm(creds: LLMCredentials) -> ChatOpenAI:
+    # Any OpenAI-compatible endpoint. Small cache: clients are cheap, and we
+    # don't want to hold many visitors' keys in memory.
+    return ChatOpenAI(
+        api_key=creds.api_key,
+        base_url=creds.base_url,
+        model=creds.model,
+        temperature=settings.gemini_temperature,
+        max_tokens=settings.gemini_max_tokens,
+        timeout=60,
+        max_retries=1,
+    )
+
+
+def get_llm() -> ChatOpenAI:
+    """The visitor's own LLM if they supplied credentials, else the server default."""
+    creds = llm_credentials.get()
+    if creds is not None:
+        return _user_llm(creds)
+    if settings.require_user_llm_key:
+        raise LLMNotConfiguredError("Add your LLM API key in Settings to run research.")
+    return _default_llm()

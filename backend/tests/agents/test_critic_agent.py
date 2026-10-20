@@ -19,8 +19,8 @@ def _make_agent(llm_output: CriticOutput) -> CriticAgent:
     structured_llm.ainvoke = AsyncMock(return_value=llm_output)
     mock_llm.with_structured_output = MagicMock(return_value=structured_llm)
 
-    with patch("app.agents.base_agent.get_llm", return_value=mock_llm):
-        agent = CriticAgent()
+    agent = CriticAgent()
+    agent._injected_llm = mock_llm
 
     return agent
 

@@ -23,7 +23,8 @@ Given the query and a set of search result snippets, your tasks are:
    - 0.4: Partial relevance or limited specificity.
    - 0.1: Mostly irrelevant or no actionable information.
 
-Return only structured JSON matching the required schema.
+Return only a single JSON object matching exactly this schema (no markdown fences, no extra text):
+{"findings": ["<one sentence per useful source>", ...], "confidence": <float 0.0-1.0>}
 """
 
 _ANALYSIS_USER = """\
@@ -56,9 +57,9 @@ def _build_citations(results: list[WebSearchResult]) -> list[Citation]:
 class SearchAgent(BaseAgent):
     name = "search"
 
-    def __init__(self) -> None:
-        super().__init__()
-        self._structured_llm = self._llm.with_structured_output(LLMSearchAnalysis)
+    @property
+    def _structured_llm(self):
+        return self._llm.with_structured_output(LLMSearchAnalysis, method="json_mode")
 
     async def run(self, state: AgentState) -> dict[str, Any]:
         query = state["query"]

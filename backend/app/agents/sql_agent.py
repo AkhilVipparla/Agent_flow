@@ -6,34 +6,18 @@ from typing import Any
 
 from app.agents.base_agent import BaseAgent
 from app.graph.state import AgentState, append_sql_results
-from app.tools.sql_tool import SQLExecutionError, SQLValidationError, execute_sql
+from app.tools.sql_tool import CustomerDatabaseError, SQLExecutionError, SQLValidationError, execute_sql, get_schema_description
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Schema context injected into the generation prompt so the LLM knows what
-# tables and columns exist. Update this block when the schema evolves.
-# ---------------------------------------------------------------------------
+_GENERATION_SYSTEM = """You are a SQL expert. Given a business question and the live database schema below, write a single, safe SELECT query that answers the question.
 
-_DB_SCHEMA = """
-Tables available:
-  users          (id UUID, email TEXT, name TEXT, org_id UUID, role TEXT, created_at TIMESTAMPTZ)
-  organizations  (id UUID, name TEXT, plan TEXT, created_at TIMESTAMPTZ)
-  projects       (id UUID, name TEXT, org_id UUID, created_by UUID, created_at TIMESTAMPTZ)
-  reports        (id UUID, project_id UUID, query TEXT, final_report TEXT, confidence_score FLOAT, created_at TIMESTAMPTZ)
-  agent_runs     (id UUID, report_id UUID, agent_name TEXT, status TEXT, duration_ms INT, evidence_count INT, created_at TIMESTAMPTZ)
-  usage_logs     (id UUID, org_id UUID, report_id UUID, tokens_used INT, cost_usd FLOAT, created_at TIMESTAMPTZ)
-"""
-
-_GENERATION_SYSTEM = f"""\
-You are a PostgreSQL expert. Given a business question and the database schema below, \
-write a single, safe SELECT query that answers the question.
-
-{_DB_SCHEMA}
+{schema}
 
 Rules:
 - Output ONLY the raw SQL statement. No markdown, no explanation, no code fences.
 - Use only SELECT. Never use INSERT, UPDATE, DELETE, DROP, ALTER, or CREATE.
+- Use only tables and columns that appear in the schema above, spelled exactly as shown.
 - Do not use semicolons.
 - Use table aliases for clarity.
 - If the question cannot be answered from the schema, output exactly: UNSUPPORTED
@@ -74,9 +58,17 @@ class SQLAgent(BaseAgent):
     async def run(self, state: AgentState) -> dict[str, Any]:
         query = state["query"]
 
-        # Step 1 — generate SQL
+        # Step 1 — generate SQL against the live schema
+        try:
+            schema = await get_schema_description()
+        except CustomerDatabaseError as exc:
+            logger.info("SQLAgent skipped: %s", exc)
+            return {}
+        except Exception as exc:
+            logger.warning("SQLAgent: schema discovery failed: %s", exc)
+            return {"error": "sql_agent: could not read the database schema"}
         gen_messages = [
-            ("system", _GENERATION_SYSTEM),
+            ("system", _GENERATION_SYSTEM.format(schema=schema)),
             ("human", _GENERATION_USER.format(query=query)),
         ]
         gen_response = await self._llm.ainvoke(gen_messages)

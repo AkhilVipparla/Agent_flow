@@ -4,7 +4,7 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Any
 
-from langchain_groq import ChatGroq
+from langchain_openai import ChatOpenAI
 
 from app.graph.state import AgentState
 from app.services.llm_service import get_llm
@@ -17,8 +17,14 @@ class BaseAgent(ABC):
 
     name: str = "base"
 
-    def __init__(self) -> None:
-        self._llm: ChatGroq = get_llm()
+    # Set to pin a specific LLM (used by tests); otherwise resolved per request.
+    _injected_llm: ChatOpenAI | None = None
+
+    @property
+    def _llm(self) -> ChatOpenAI:
+        # Resolved on every access: agents are process-wide singletons, but the
+        # LLM depends on the current request's (visitor-supplied) credentials.
+        return self._injected_llm or get_llm()
 
     @abstractmethod
     async def run(self, state: AgentState) -> dict[str, Any]:

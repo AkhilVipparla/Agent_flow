@@ -6,6 +6,7 @@ import tempfile
 from fastapi import APIRouter, HTTPException, UploadFile
 
 from app.api.dependencies import DbDep, EmbedDep, VectorDbDep
+from app.config import settings
 from app.schemas.documents import DocumentResponse, DocumentUploadResponse
 from app.services.document_service import delete_document, ingest_document, list_documents
 
@@ -21,7 +22,10 @@ async def upload_document(
 ) -> DocumentUploadResponse:
     filename = file.filename or "upload"
     _, ext = os.path.splitext(filename.lower())
-    contents = await file.read()
+    max_bytes = settings.max_upload_mb * 1024 * 1024
+    contents = await file.read(max_bytes + 1)
+    if len(contents) > max_bytes:
+        raise HTTPException(status_code=413, detail=f"File is larger than {settings.max_upload_mb} MB.")
     with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
         tmp.write(contents)
         tmp_path = tmp.name
@@ -38,7 +42,7 @@ async def list_all_documents(db: DbDep) -> list[DocumentResponse]:
     return await list_documents(db)
 
 
-@router.delete("/documents/{doc_id}", status_code=204)
+@router.delete("/documents/{doc_id}", status_code=204, response_model=None)
 async def delete_document_by_id(doc_id: str, vector_db: VectorDbDep, db: DbDep) -> None:
     deleted = await delete_document(doc_id, vector_db, db)
     if not deleted:

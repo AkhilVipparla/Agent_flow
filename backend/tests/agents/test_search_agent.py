@@ -47,8 +47,8 @@ def _make_agent() -> SearchAgent:
     structured_llm.ainvoke = AsyncMock(return_value=MOCK_ANALYSIS)
     mock_llm.with_structured_output = MagicMock(return_value=structured_llm)
 
-    with patch("app.agents.base_agent.get_llm", return_value=mock_llm):
-        agent = SearchAgent()
+    agent = SearchAgent()
+    agent._injected_llm = mock_llm
 
     return agent
 

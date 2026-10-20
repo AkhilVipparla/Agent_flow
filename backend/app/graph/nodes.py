@@ -18,7 +18,6 @@ _planner = None
 _rag = None
 _sql = None
 _search = None
-_file = None
 _critic = None
 _report = None
 
@@ -53,14 +52,6 @@ def _get_search():
         from app.agents.search_agent import SearchAgent
         _search = SearchAgent()
     return _search
-
-
-def _get_file():
-    global _file
-    if _file is None:
-        from app.agents.file_agent import FileAnalysisAgent
-        _file = FileAnalysisAgent()
-    return _file
 
 
 def _get_critic():
@@ -110,10 +101,6 @@ async def sql_node(state: AgentState) -> dict[str, Any]:
 
 async def search_node(state: AgentState) -> dict[str, Any]:
     return await _timed_run("search", _get_search(), state)
-
-
-async def file_node(state: AgentState) -> dict[str, Any]:
-    return await _timed_run("file", _get_file(), state)
 
 
 async def critic_node(state: AgentState) -> dict[str, Any]:

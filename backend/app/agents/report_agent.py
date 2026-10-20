@@ -22,7 +22,8 @@ Rules:
 - List key findings as specific, evidence-backed statements. Each finding is one sentence.
 - Omit findings that are vague or unsupported by the evidence.
 
-Return only structured JSON matching the required schema.
+Return only a single JSON object matching exactly this schema (no markdown fences, no extra text):
+{"executive_summary": "<3-5 sentence summary>", "key_findings": ["<finding sentence>", ...]}
 """
 
 _USER_PROMPT = """\
@@ -38,9 +39,6 @@ Research Query: {query}
 
 [Web Search Results — Search Agent]
 {search_evidence}
-
-[File Analysis — File Agent]
-{file_evidence}
 
 Synthesise the evidence above into an executive summary and key findings.
 """
@@ -76,9 +74,9 @@ def _summarise_search(results: list[dict[str, Any]]) -> str:
 class ReportAgent(BaseAgent):
     name = "report"
 
-    def __init__(self) -> None:
-        super().__init__()
-        self._structured_llm = self._llm.with_structured_output(LLMReportContent)
+    @property
+    def _structured_llm(self):
+        return self._llm.with_structured_output(LLMReportContent, method="json_mode")
 
     async def run(self, state: AgentState) -> dict[str, Any]:
         messages = [
@@ -90,7 +88,6 @@ class ReportAgent(BaseAgent):
                     rag_evidence=_summarise_rag(state["retrieved_documents"]),
                     sql_evidence=_summarise_sql(state["sql_results"]),
                     search_evidence=_summarise_search(state["search_results"]),
-                    file_evidence=_summarise_rag(state["file_results"]),
                 ),
             ),
         ]

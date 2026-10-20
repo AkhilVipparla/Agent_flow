@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from functools import lru_cache
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
@@ -146,8 +147,9 @@ class MockVectorSearch:
 class QdrantVectorSearch:
     """Real Qdrant implementation. Requires a running Qdrant instance."""
 
-    def __init__(self, url: str, collection: str, api_key: str = "") -> None:
+    def __init__(self, url: str, collection: str, api_key: str = "", path: str = "") -> None:
         self._url = url
+        self._path = path
         self._collection = collection
         self._api_key = api_key
         self._client = None
@@ -155,7 +157,11 @@ class QdrantVectorSearch:
     def _get_client(self):
         if self._client is None:
             from qdrant_client import AsyncQdrantClient
-            self._client = AsyncQdrantClient(url=self._url, api_key=self._api_key or None)
+            if self._path:
+                # Embedded mode: persists to a local folder, no server needed.
+                self._client = AsyncQdrantClient(path=self._path)
+            else:
+                self._client = AsyncQdrantClient(url=self._url, api_key=self._api_key or None)
         return self._client
 
     # Vector size must match the embedding model (BAAI/bge-small-en-v1.5 → 384).
@@ -170,6 +176,16 @@ class QdrantVectorSearch:
                 vectors_config=VectorParams(size=self._VECTOR_SIZE, distance=Distance.COSINE),
             )
             logger.info("Qdrant collection %r created", self._collection)
+        try:
+            # Speeds up per-visitor filtering on server/cloud Qdrant; a no-op in embedded mode.
+            from qdrant_client.models import PayloadSchemaType
+            await client.create_payload_index(
+                collection_name=self._collection,
+                field_name="owner_id",
+                field_schema=PayloadSchemaType.KEYWORD,
+            )
+        except Exception:
+            logger.debug("owner_id payload index not created", exc_info=True)
 
     async def similarity_search(
         self,
@@ -179,13 +195,14 @@ class QdrantVectorSearch:
     ) -> list[SearchResult]:
         from qdrant_client.models import Filter
         client = self._get_client()
-        hits = await client.search(
+        response = await client.query_points(
             collection_name=self._collection,
-            query_vector=vector,
+            query=vector,
             limit=top_k,
             query_filter=Filter(**filters) if filters else None,
             with_payload=True,
         )
+        hits = response.points
         return [
             SearchResult(
                 id=str(hit.id),
@@ -230,10 +247,18 @@ class QdrantVectorSearch:
 # Factory
 # ---------------------------------------------------------------------------
 
+@lru_cache(maxsize=1)
 def get_vector_search_service() -> VectorSearchProtocol:
+    # Cached: upload, search and startup must share one instance (embedded
+    # Qdrant locks its folder, and mock/real must not differ between callers).
     from app.config import settings
     if settings.use_mock_vector_search:
         logger.info("VectorSearch: using MockVectorSearch")
         return MockVectorSearch()
-    logger.info("VectorSearch: connecting to Qdrant at %s", settings.qdrant_url)
-    return QdrantVectorSearch(settings.qdrant_url, settings.qdrant_collection, settings.qdrant_api_key)
+    if settings.qdrant_path:
+        logger.info("VectorSearch: using embedded Qdrant at %s", settings.qdrant_path)
+    else:
+        logger.info("VectorSearch: connecting to Qdrant at %s", settings.qdrant_url)
+    return QdrantVectorSearch(
+        settings.qdrant_url, settings.qdrant_collection, settings.qdrant_api_key, settings.qdrant_path
+    )

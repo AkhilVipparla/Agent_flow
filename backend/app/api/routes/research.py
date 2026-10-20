@@ -4,7 +4,8 @@ from fastapi import APIRouter, HTTPException
 
 from app.api.dependencies import DbDep
 from app.schemas.research import AgentRunResponse, ResearchRequest
-from app.services.research_service import run_research
+from app.config import settings
+from app.services.research_service import count_running, start_research
 from app.services.runs_service import get_run, list_runs
 
 router = APIRouter(tags=["research"])
@@ -12,7 +13,12 @@ router = APIRouter(tags=["research"])
 
 @router.post("/query", response_model=AgentRunResponse)
 async def submit_query(request: ResearchRequest, db: DbDep) -> AgentRunResponse:
-    return await run_research(request.query, db, request.uploaded_files or None)
+    if count_running() >= settings.max_concurrent_runs_per_visitor:
+        raise HTTPException(
+            status_code=429,
+            detail="You already have research running. Wait for it to finish before starting another.",
+        )
+    return await start_research(request.query, db)
 
 
 @router.get("/runs", response_model=list[AgentRunResponse])

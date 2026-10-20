@@ -5,12 +5,10 @@ from typing import Literal
 from app.graph.state import AgentState
 
 # Maps execution_plan agent identifiers to graph node names.
-# "file" is the planner's identifier; "file_analysis" is the node name.
 _AGENT_TO_NODE: dict[str, str] = {
     "rag": "rag",
     "sql": "sql",
     "search": "search",
-    "file": "file_analysis",
 }
 
 

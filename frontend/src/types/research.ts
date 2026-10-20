@@ -3,7 +3,6 @@ import type { Citation } from './report';
 
 export interface ResearchRequest {
   query: string;
-  uploadedFiles?: string[];
 }
 
 export interface EvidenceItem {

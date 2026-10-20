@@ -33,10 +33,11 @@ Scoring guide:
 - 0.0–0.29: Little to no useful evidence collected.
 
 Decision rule:
-- PASS if confidence >= {threshold} or max retries reached./cl
+- PASS if confidence >= {threshold} or max retries reached.
 - RETRY if confidence < {threshold} and evidence gaps can be addressed by replanning.
 
-Return only structured JSON matching the required schema.
+Return only a single JSON object matching exactly this schema (no markdown fences, no extra text):
+{{"decision": "PASS" | "RETRY", "confidence": <float 0.0-1.0>, "reason": "<one sentence>", "missing_information": ["<gap>", ...]}}
 """
 
 _USER_PROMPT = """\
@@ -55,9 +56,6 @@ Agents with NO evidence returned: {empty_agents}
 
 [Web Search Results — Search Agent]
 {search_evidence}
-
-[File Analysis — File Agent]
-{file_evidence}
 
 Evaluate the evidence above and return your structured assessment.
 """
@@ -103,7 +101,6 @@ def _empty_agents(state: AgentState, planned: list[str]) -> list[str]:
         "rag":    bool(state["retrieved_documents"]),
         "sql":    bool(state["sql_results"]),
         "search": bool(state["search_results"]),
-        "file":   bool(state["file_results"]),
     }
     return [a for a in planned if not evidence_map.get(a, True)]
 
@@ -111,9 +108,9 @@ def _empty_agents(state: AgentState, planned: list[str]) -> list[str]:
 class CriticAgent(BaseAgent):
     name = "critic"
 
-    def __init__(self) -> None:
-        super().__init__()
-        self._structured_llm = self._llm.with_structured_output(CriticOutput)
+    @property
+    def _structured_llm(self):
+        return self._llm.with_structured_output(CriticOutput, method="json_mode")
 
     async def run(self, state: AgentState) -> dict[str, Any]:
         planned = _planned_agents(state)
@@ -133,7 +130,6 @@ class CriticAgent(BaseAgent):
                     rag_evidence=_summarise_rag(state["retrieved_documents"]),
                     sql_evidence=_summarise_sql(state["sql_results"]),
                     search_evidence=_summarise_search(state["search_results"]),
-                    file_evidence=_summarise_rag(state["file_results"]),
                 ),
             ),
         ]

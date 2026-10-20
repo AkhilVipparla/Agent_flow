@@ -7,15 +7,27 @@ from typing import Any
 from app.schemas.common import AgentStatus
 from app.schemas.research import AgentRunResponse, AgentStepResponse, RunEvidence
 from app.services.postgres_service import DatabaseProtocol
+from app.services.request_context import current_owner
+from app.services.research_service import get_active_run, list_active_runs
 
 
 async def list_runs(db: DatabaseProtocol) -> list[AgentRunResponse]:
-    rows = await db.fetch_many("SELECT * FROM agent_runs ORDER BY created_at DESC")
-    return [_row_to_run(row) for row in rows]
+    rows = await db.fetch_many(
+        "SELECT * FROM agent_runs WHERE owner_id = $1 ORDER BY created_at DESC", (current_owner(),)
+    )
+    runs = {r.id: r for r in (_row_to_run(row) for row in rows)}
+    for live in list_active_runs():
+        runs[live.id] = live  # in-memory state is fresher than the DB row
+    return sorted(runs.values(), key=lambda r: r.created_at, reverse=True)
 
 
 async def get_run(run_id: str, db: DatabaseProtocol) -> AgentRunResponse | None:
-    row = await db.fetch_one("SELECT * FROM agent_runs WHERE id = $1", (run_id,))
+    live = get_active_run(run_id)
+    if live is not None:
+        return live
+    row = await db.fetch_one(
+        "SELECT * FROM agent_runs WHERE id = $1 AND owner_id = $2", (run_id, current_owner())
+    )
     return _row_to_run(row) if row else None
 
 

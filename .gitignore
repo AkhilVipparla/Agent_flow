@@ -8,6 +8,8 @@ venv/
 *.egg-info/
 dist/
 .pytest_cache/
+*.db
+*.db-journal
 
 # Node
 node_modules/
@@ -27,3 +29,4 @@ setup.md
 # OS
 .DS_Store
 Thumbs.db
+backend/qdrant_data/

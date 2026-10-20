@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import openpyxl
+import xlrd
 
 from app.schemas.file_analysis import SheetData
 
@@ -35,6 +36,25 @@ def _read_xlsx_sync(file_path: str) -> list[SheetData]:
     return sheets
 
 
+def _read_xls_sync(file_path: str) -> list[SheetData]:
+    """Legacy binary .xls format — openpyxl can't read these, xlrd can."""
+    book = xlrd.open_workbook(file_path)
+    sheets: list[SheetData] = []
+    for sheet_name in book.sheet_names():
+        ws = book.sheet_by_name(sheet_name)
+        if ws.nrows == 0:
+            continue
+        headers = [str(h) if h != "" else "" for h in ws.row_values(0)]
+        data_rows: list[dict[str, Any]] = []
+        for r in range(1, min(ws.nrows, _MAX_ROWS + 1)):
+            values = ws.row_values(r)
+            data_rows.append(
+                {headers[i]: (str(v) if v != "" else "") for i, v in enumerate(values)}
+            )
+        sheets.append({"sheet": sheet_name, "headers": headers, "rows": data_rows})
+    return sheets
+
+
 def _read_csv_sync(file_path: str) -> list[SheetData]:
     with open(file_path, newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
@@ -60,6 +80,8 @@ async def parse_excel(file_path: str) -> list[SheetData]:
     loop = asyncio.get_event_loop()
     if suffix == ".csv":
         sheets = await loop.run_in_executor(None, _read_csv_sync, str(path))
+    elif suffix == ".xls":
+        sheets = await loop.run_in_executor(None, _read_xls_sync, str(path))
     else:
         sheets = await loop.run_in_executor(None, _read_xlsx_sync, str(path))
 

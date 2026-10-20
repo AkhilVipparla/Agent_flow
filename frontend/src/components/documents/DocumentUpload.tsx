@@ -33,11 +33,15 @@ export function DocumentUpload({ onUpload, isUploading }: Props) {
           : 'border-gray-300 hover:border-indigo-400 hover:bg-indigo-50'
       }`}
     >
-      <span className="text-3xl select-none">📎</span>
+      <svg className="h-8 w-8 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M12 16V4m0 0L7 9m5-5 5 5" />
+        <path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3" />
+      </svg>
       <p className="text-sm font-medium text-gray-700">
         {isUploading ? 'Uploading…' : 'Click or drag a file to upload'}
       </p>
-      <p className="text-xs text-gray-400">PDF, Excel (.xlsx / .xls), CSV — max 50 MB</p>
+      <p className="text-xs text-gray-400">PDF, Excel (.xlsx / .xls), CSV — max 10 MB</p>
       <input
         ref={inputRef}
         type="file"

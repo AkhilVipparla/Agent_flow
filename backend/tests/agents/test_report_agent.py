@@ -28,8 +28,8 @@ def _make_agent(llm_output: LLMReportContent) -> ReportAgent:
     structured_llm.ainvoke = AsyncMock(return_value=llm_output)
     mock_llm.with_structured_output = MagicMock(return_value=structured_llm)
 
-    with patch("app.agents.base_agent.get_llm", return_value=mock_llm):
-        agent = ReportAgent()
+    agent = ReportAgent()
+    agent._injected_llm = mock_llm
 
     return agent
 
@@ -149,5 +149,5 @@ async def test_report_does_not_write_evidence_fields():
     agent = _make_agent(_llm_output())
     result = await agent.run(_state_with_evidence())
 
-    evidence_keys = {"retrieved_documents", "sql_results", "search_results", "file_results"}
+    evidence_keys = {"retrieved_documents", "sql_results", "search_results"}
     assert evidence_keys.isdisjoint(result.keys())

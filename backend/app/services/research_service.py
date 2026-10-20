@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import uuid
@@ -16,6 +17,7 @@ from app.schemas.research import (
     SearchResultItem,
 )
 from app.services.postgres_service import DatabaseProtocol
+from app.services.request_context import current_owner
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +73,6 @@ def _build_steps(result: dict[str, Any]) -> list[AgentStepResponse]:
         "rag": len(result.get("retrieved_documents", [])),
         "sql": len(result.get("sql_results", [])),
         "search": len(result.get("search_results", [])),
-        "file": len(result.get("file_results", [])),
     }
     return [
         AgentStepResponse(
@@ -84,89 +85,211 @@ def _build_steps(result: dict[str, Any]) -> list[AgentStepResponse]:
     ]
 
 
-async def _persist_run(run: AgentRunResponse, report_fields: dict[str, Any], db: DatabaseProtocol) -> None:
-    """Write the completed run (and its report, if one was produced) to PostgreSQL."""
+# Runs currently executing (or finished this process lifetime). Consulted before
+# the database so progress is visible even when the DB is the no-op mock.
+_active_runs: dict[str, AgentRunResponse] = {}
+# Strong references: asyncio only keeps weak refs to tasks, so an unreferenced
+# background task can be garbage-collected mid-run.
+_background_tasks: set[asyncio.Task] = set()
+
+
+# run id -> visitor who started it. Live runs are only visible to their owner.
+_run_owner: dict[str, str] = {}
+
+
+def get_active_run(run_id: str) -> AgentRunResponse | None:
+    if _run_owner.get(run_id) != current_owner():
+        return None
+    return _active_runs.get(run_id)
+
+
+def list_active_runs() -> list[AgentRunResponse]:
+    owner = current_owner()
+    return [run for run_id, run in _active_runs.items() if _run_owner.get(run_id) == owner]
+
+
+def count_running(owner: str | None = None) -> int:
+    owner = owner or current_owner()
+    return sum(
+        1 for run_id, run in _active_runs.items()
+        if _run_owner.get(run_id) == owner and run.status == AgentStatus.running
+    )
+
+
+def _progress_steps(result: dict[str, Any]) -> list[AgentStepResponse]:
+    """Build the step list from a mid-run state snapshot: finished agents plus
+    whichever agents are running right now."""
+    steps: dict[str, AgentStepResponse] = {s.agent_name: s for s in _build_steps(result)}
+    names = [s["agent_name"] for s in result.get("agent_steps", [])]
+
+    running: list[str] = []
+    if "report" in names:
+        pass
+    elif not names:
+        running = ["planner"]
+    elif names[-1] == "critic":
+        running = ["planner"] if result.get("critic_decision") == "RETRY" else ["report"]
+    else:
+        last_planner = max((i for i, n in enumerate(names) if n == "planner"), default=-1)
+        done_this_round = set(names[last_planner + 1:])
+        plan = result.get("execution_plan")
+        planned = list(plan.agents) if plan is not None else []
+        pending = [a for a in planned if a not in done_this_round]
+        running = pending if pending else ["critic"]
+
+    for name in running:
+        steps[name] = AgentStepResponse(agent_name=name, status=AgentStatus.running, duration_ms=0)
+    return list(steps.values())
+
+
+async def _insert_run(run: AgentRunResponse, db: DatabaseProtocol) -> None:
+    await db.execute(
+        """
+        INSERT INTO agent_runs
+            (id, query, status, agents_executed, steps, evidence,
+             final_report, confidence_score, created_at, owner_id)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        """,
+        (
+            run.id,
+            run.query,
+            run.status.value,
+            json.dumps(run.agents_executed),
+            json.dumps([s.model_dump() for s in run.steps]),
+            run.evidence.model_dump_json(),
+            run.final_report,
+            run.confidence_score,
+            run.created_at,
+            _run_owner.get(run.id, current_owner()),
+        ),
+    )
+
+
+async def _write_run(run: AgentRunResponse, db: DatabaseProtocol) -> None:
+    await db.execute(
+        """
+        UPDATE agent_runs
+        SET status = $1, agents_executed = $2, steps = $3, evidence = $4,
+            final_report = $5, confidence_score = $6
+        WHERE id = $7
+        """,
+        (
+            run.status.value,
+            json.dumps(run.agents_executed),
+            json.dumps([s.model_dump() for s in run.steps]),
+            run.evidence.model_dump_json(),
+            run.final_report,
+            run.confidence_score,
+            run.id,
+        ),
+    )
+
+
+async def _insert_report(run: AgentRunResponse, report_fields: dict[str, Any], db: DatabaseProtocol) -> None:
+    await db.execute(
+        """
+        INSERT INTO reports
+            (id, query, executive_summary, key_findings, citations,
+             confidence_score, created_at, owner_id)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        """,
+        (
+            run.id,
+            run.query,
+            report_fields.get("executive_summary", ""),
+            json.dumps(report_fields.get("key_findings") or []),
+            json.dumps(report_fields.get("citations") or []),
+            run.confidence_score,
+            run.created_at,
+            _run_owner.get(run.id, current_owner()),
+        ),
+    )
+
+
+async def _safe_db(coro, run_id: str) -> None:
+    # Persistence failure must not abort the research itself.
     try:
-        await db.execute(
-            """
-            INSERT INTO agent_runs
-                (id, query, status, agents_executed, steps, evidence,
-                 final_report, confidence_score, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-            """,
-            (
-                run.id,
-                run.query,
-                run.status.value,
-                json.dumps(run.agents_executed),
-                json.dumps([s.model_dump() for s in run.steps]),
-                run.evidence.model_dump_json(),
-                run.final_report,
-                run.confidence_score,
-                run.created_at,
-            ),
-        )
-        if report_fields:
-            await db.execute(
-                """
-                INSERT INTO reports
-                    (id, query, executive_summary, key_findings, citations,
-                     confidence_score, created_at)
-                VALUES ($1, $2, $3, $4, $5, $6, $7)
-                """,
-                (
-                    run.id,
-                    run.query,
-                    report_fields.get("executive_summary", ""),
-                    json.dumps(report_fields.get("key_findings") or []),
-                    json.dumps(report_fields.get("citations") or []),
-                    run.confidence_score,
-                    run.created_at,
-                ),
-            )
+        await coro
     except Exception:
-        # Persistence failure must not lose the result the user is waiting on.
-        logger.exception("Failed to persist run %s", run.id)
+        logger.exception("Failed to persist run %s", run_id)
 
 
-async def run_research(
+async def _execute_run(run_id: str, state: dict[str, Any], db: DatabaseProtocol) -> None:
+    run = _active_runs[run_id]
+    result: dict[str, Any] = dict(state)
+    try:
+        # stream_mode="values" yields the full merged state after every
+        # superstep, so progress can be reported as each agent finishes.
+        async for snapshot in graph.astream(state, stream_mode="values"):
+            result = snapshot
+            plan = result.get("execution_plan")
+            run = run.model_copy(update={
+                "agents_executed": list(plan.agents) if plan is not None else [],
+                "steps": _progress_steps(result),
+                "evidence": _build_evidence(result),
+                "confidence_score": result.get("confidence_score", 0.0),
+            })
+            _active_runs[run_id] = run
+            await _safe_db(_write_run(run, db), run_id)
+
+        final_report, report_fields = _render_report_markdown(result.get("final_report", ""))
+        run = run.model_copy(update={
+            "steps": _build_steps(result),
+            "final_report": final_report,
+            "status": AgentStatus.failed if result.get("error") else AgentStatus.complete,
+        })
+        _active_runs[run_id] = run
+        await _safe_db(_write_run(run, db), run_id)
+        if report_fields:
+            await _safe_db(_insert_report(run, report_fields, db), run_id)
+    except Exception:
+        logger.exception("Research workflow failed for run %s", run_id)
+        run = run.model_copy(update={
+            "status": AgentStatus.failed,
+            "steps": [
+                s.model_copy(update={"status": AgentStatus.failed}) if s.status == AgentStatus.running else s
+                for s in run.steps
+            ],
+        })
+        _active_runs[run_id] = run
+        await _safe_db(_write_run(run, db), run_id)
+
+
+async def start_research(
     query: str,
     db: DatabaseProtocol,
-    uploaded_files: list[str] | None = None,
 ) -> AgentRunResponse:
+    """Register the run, launch the graph in the background, and return at once.
+
+    The task is owned by the event loop, not the HTTP request, so the user
+    navigating away (or closing the tab) does not cancel it.
+    """
     run_id = str(uuid.uuid4())
     state = initial_state(query)
-    if uploaded_files:
-        state["uploaded_files"] = uploaded_files
 
+    run = AgentRunResponse(
+        id=run_id,
+        query=query,
+        agents_executed=[],
+        steps=[AgentStepResponse(agent_name="planner", status=AgentStatus.running, duration_ms=0)],
+        confidence_score=0.0,
+        final_report="",
+        status=AgentStatus.running,
+        created_at=datetime.now(timezone.utc),
+    )
+    _active_runs[run_id] = run
+    _run_owner[run_id] = current_owner()
+    await _safe_db(_insert_run(run, db), run_id)
+
+    task = asyncio.create_task(_execute_run(run_id, state, db))
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+    return run
+
+
+async def fail_orphaned_runs(db: DatabaseProtocol) -> None:
+    """Runs left 'running' by a previous process can never finish; mark them failed."""
     try:
-        result = await graph.ainvoke(state)
-        agents_executed: list[str] = []
-        if result.get("execution_plan"):
-            agents_executed = result["execution_plan"].agents
-        status = AgentStatus.failed if result.get("error") else AgentStatus.complete
-        final_report, report_fields = _render_report_markdown(result.get("final_report", ""))
-        run = AgentRunResponse(
-            id=run_id,
-            query=query,
-            agents_executed=agents_executed,
-            steps=_build_steps(result),
-            evidence=_build_evidence(result),
-            confidence_score=result.get("confidence_score", 0.0),
-            final_report=final_report,
-            status=status,
-            created_at=datetime.now(timezone.utc),
-        )
-        await _persist_run(run, report_fields, db)
-        return run
+        await db.execute("UPDATE agent_runs SET status = 'failed' WHERE status = 'running'")
     except Exception:
-        logger.exception("Research workflow failed for query=%r", query)
-        return AgentRunResponse(
-            id=run_id,
-            query=query,
-            agents_executed=[],
-            confidence_score=0.0,
-            final_report="",
-            status=AgentStatus.failed,
-            created_at=datetime.now(timezone.utc),
-        )
+        logger.exception("Failed to clean up orphaned runs")

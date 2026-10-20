@@ -6,16 +6,19 @@ from typing import Any
 
 from app.schemas.reports import ReportListResponse, ReportResponse, ReportSummary
 from app.services.postgres_service import DatabaseProtocol
+from app.services.request_context import current_owner
 
 
 async def list_reports(db: DatabaseProtocol) -> ReportListResponse:
-    rows = await db.fetch_many("SELECT * FROM reports ORDER BY created_at DESC")
+    rows = await db.fetch_many(
+        "SELECT * FROM reports WHERE owner_id = $1 ORDER BY created_at DESC", (current_owner(),)
+    )
     summaries = [_row_to_summary(row) for row in rows]
     return ReportListResponse(reports=summaries, total=len(summaries))
 
 
 async def delete_report(report_id: str, db: DatabaseProtocol) -> None:
-    await db.execute("DELETE FROM reports WHERE id = $1", (report_id,))
+    await db.execute("DELETE FROM reports WHERE id = $1 AND owner_id = $2", (report_id, current_owner()))
 
 
 def _load_json(value: Any, default: Any) -> Any:
@@ -29,7 +32,9 @@ def _load_json(value: Any, default: Any) -> Any:
 
 
 async def get_report(report_id: str, db: DatabaseProtocol) -> ReportResponse | None:
-    row = await db.fetch_one("SELECT * FROM reports WHERE id = $1", (report_id,))
+    row = await db.fetch_one(
+        "SELECT * FROM reports WHERE id = $1 AND owner_id = $2", (report_id, current_owner())
+    )
     return _row_to_report(row) if row else None
 
 

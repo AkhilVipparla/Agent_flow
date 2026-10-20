@@ -1,4 +1,4 @@
-export type AgentName = 'planner' | 'rag' | 'sql' | 'search' | 'file' | 'critic' | 'report';
+export type AgentName = 'planner' | 'rag' | 'sql' | 'search' | 'critic' | 'report';
 
 export type AgentStatus = 'idle' | 'running' | 'complete' | 'failed' | 'retrying';
 

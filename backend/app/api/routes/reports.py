@@ -23,7 +23,7 @@ async def get_report_by_id(report_id: str, db: DbDep) -> ReportResponse:
     return result
 
 
-@router.delete("/reports/{report_id}", status_code=204)
+@router.delete("/reports/{report_id}", status_code=204, response_model=None)
 async def delete_report(report_id: str, db: DbDep) -> None:
     result = await get_report(report_id, db)
     if result is None:

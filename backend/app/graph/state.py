@@ -12,8 +12,6 @@ class AgentState(TypedDict):
     retrieved_documents: Annotated[list[EvidenceItem], operator.add]
     sql_results: Annotated[list[dict[str, Any]], operator.add]
     search_results: Annotated[list[dict[str, Any]], operator.add]
-    file_results: Annotated[list[dict[str, Any]], operator.add]
-    uploaded_files: list[str]
     citations: Annotated[list[Citation], operator.add]
     # Per-node execution records ({agent_name, status, duration_ms}); appended
     # by the node wrappers in graph/nodes.py as each agent finishes.
@@ -34,8 +32,6 @@ def initial_state(query: str) -> AgentState:
         retrieved_documents=[],
         sql_results=[],
         search_results=[],
-        file_results=[],
-        uploaded_files=[],
         citations=[],
         agent_steps=[],
         confidence_score=0.0,
@@ -77,14 +73,6 @@ def append_sql_results(rows: list[dict[str, Any]]) -> dict[str, Any]:
 
 def append_search_results(results: list[dict[str, Any]]) -> dict[str, Any]:
     return {"search_results": results}
-
-
-def append_file_results(results: list[dict[str, Any]]) -> dict[str, Any]:
-    return {"file_results": results}
-
-
-def update_uploaded_files(paths: list[str]) -> dict[str, Any]:
-    return {"uploaded_files": paths}
 
 
 def append_citations(citations: list[Citation]) -> dict[str, Any]:

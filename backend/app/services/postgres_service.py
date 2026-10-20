@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import logging
+import re
+import sqlite3
+from datetime import datetime
+from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
 logger = logging.getLogger(__name__)
@@ -197,14 +202,157 @@ class MockDatabaseService:
 
 
 # ---------------------------------------------------------------------------
+# Local — SQLite file on disk; real persistence with no external services.
+# ---------------------------------------------------------------------------
+
+_SQLITE_SCHEMA = """
+CREATE TABLE IF NOT EXISTS documents (
+    id TEXT PRIMARY KEY,
+    filename TEXT NOT NULL,
+    file_type TEXT NOT NULL,
+    chunk_count INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    owner_id TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS agent_runs (
+    id TEXT PRIMARY KEY,
+    query TEXT NOT NULL,
+    status TEXT NOT NULL,
+    agents_executed TEXT NOT NULL,
+    steps TEXT NOT NULL,
+    evidence TEXT NOT NULL,
+    final_report TEXT,
+    confidence_score REAL NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    owner_id TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS reports (
+    id TEXT PRIMARY KEY,
+    query TEXT NOT NULL,
+    executive_summary TEXT,
+    key_findings TEXT,
+    citations TEXT,
+    confidence_score REAL NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    owner_id TEXT NOT NULL DEFAULT ''
+);
+"""
+
+_PLACEHOLDER_RE = re.compile(r"\$\d+")
+
+
+def _to_sqlite_sql(sql: str) -> str:
+    """asyncpg-style $1, $2... placeholders -> sqlite's ?."""
+    return _PLACEHOLDER_RE.sub("?", sql)
+
+
+def _adapt_params(params: tuple[Any, ...] | None) -> tuple[Any, ...]:
+    if not params:
+        return ()
+    return tuple(p.isoformat() if isinstance(p, datetime) else p for p in params)
+
+
+class SqliteService:
+    """Real persistence to a local .db file — no Docker/Postgres required.
+
+    Each call opens a short-lived connection on a worker thread; fine for a
+    single-user dev app and avoids cross-thread sqlite3 connection issues.
+    """
+
+    def __init__(self, db_path: str) -> None:
+        self._db_path = db_path
+        parent = Path(db_path).parent
+        if str(parent) not in ("", "."):
+            parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(self._db_path)
+        try:
+            conn.executescript(_SQLITE_SCHEMA)
+            for table in ("documents", "agent_runs", "reports"):
+                try:  # databases created before per-visitor ownership lack the column
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN owner_id TEXT NOT NULL DEFAULT ''")
+                except sqlite3.OperationalError:
+                    pass
+            conn.commit()
+        finally:
+            conn.close()
+
+    def _connect(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self._db_path)
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    async def fetch_many(
+        self,
+        sql: str,
+        params: tuple[Any, ...] | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        def _run() -> list[dict[str, Any]]:
+            conn = self._connect()
+            try:
+                cur = conn.execute(_to_sqlite_sql(sql), _adapt_params(params))
+                return [dict(row) for row in cur.fetchmany(limit)]
+            finally:
+                conn.close()
+
+        return await asyncio.to_thread(_run)
+
+    async def fetch_one(
+        self,
+        sql: str,
+        params: tuple[Any, ...] | None = None,
+    ) -> dict[str, Any] | None:
+        def _run() -> dict[str, Any] | None:
+            conn = self._connect()
+            try:
+                cur = conn.execute(_to_sqlite_sql(sql), _adapt_params(params))
+                row = cur.fetchone()
+                return dict(row) if row else None
+            finally:
+                conn.close()
+
+        return await asyncio.to_thread(_run)
+
+    async def execute(
+        self,
+        sql: str,
+        params: tuple[Any, ...] | None = None,
+    ) -> None:
+        def _run() -> None:
+            conn = self._connect()
+            try:
+                conn.execute(_to_sqlite_sql(sql), _adapt_params(params))
+                conn.commit()
+            finally:
+                conn.close()
+
+        await asyncio.to_thread(_run)
+
+    async def close(self) -> None:
+        pass
+
+
+# ---------------------------------------------------------------------------
 # Real — asyncpg connection pool; lazy init.
 # ---------------------------------------------------------------------------
 
 class PostgresService:
     """Real PostgreSQL service using asyncpg connection pool."""
 
-    def __init__(self, database_url: str) -> None:
+    def __init__(
+        self,
+        database_url: str,
+        *,
+        read_only: bool = False,
+        min_size: int = 2,
+        max_size: int = 10,
+    ) -> None:
         self._database_url = database_url
+        self._read_only = read_only
+        self._min_size = min_size
+        self._max_size = max_size
         self._pool = None
 
     async def _get_pool(self):
@@ -212,7 +360,21 @@ class PostgresService:
             import asyncpg
             # SQLAlchemy async DSN uses postgresql+asyncpg:// — strip driver prefix for asyncpg
             url = self._database_url.replace("postgresql+asyncpg://", "postgresql://")
-            self._pool = await asyncpg.create_pool(url, min_size=2, max_size=10)
+            server_settings = None
+            if self._read_only:
+                # Defence in depth for visitor-supplied databases: the session itself
+                # refuses writes and runaway queries, regardless of the SQL validator.
+                server_settings = {
+                    "default_transaction_read_only": "on",
+                    "statement_timeout": "15000",
+                }
+            self._pool = await asyncpg.create_pool(
+                url,
+                min_size=self._min_size,
+                max_size=self._max_size,
+                timeout=10,
+                server_settings=server_settings,
+            )
         return self._pool
 
     async def fetch_many(
@@ -260,5 +422,10 @@ def get_database_service() -> DatabaseProtocol:
     if settings.use_mock_sql:
         logger.info("DatabaseService: using MockDatabaseService")
         return MockDatabaseService()
+    if settings.database_url.startswith("sqlite"):
+        # sqlite:///./agentflow.db -> ./agentflow.db
+        path = settings.database_url.split("///", 1)[-1]
+        logger.info("DatabaseService: using local SQLite at %s", path)
+        return SqliteService(path)
     logger.info("DatabaseService: connecting to PostgreSQL at %s", settings.database_url)
     return PostgresService(settings.database_url)

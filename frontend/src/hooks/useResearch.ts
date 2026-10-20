@@ -1,98 +1,81 @@
-import { useMutation } from '@tanstack/react-query';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useCallback, useEffect, useState } from 'react';
 import type { AgentName, AgentStatus, AgentStep } from '../types/agent';
 import type { AgentRunResponse } from '../types/research';
-import { submitResearchQuery } from '../services/researchService';
+import { getAgentRun, submitResearchQuery } from '../services/researchService';
 
-const ALL_AGENTS: AgentName[] = ['planner', 'rag', 'sql', 'search', 'file', 'critic', 'report'];
+const ALL_AGENTS: AgentName[] = ['planner', 'rag', 'sql', 'search', 'critic', 'report'];
+const ACTIVE_RUN_KEY = 'agentflow.activeRunId';
+const POLL_MS = 1500;
 
-function idleSteps(): AgentStep[] {
-  return ALL_AGENTS.map((agentName) => ({ agentName, status: 'idle' as AgentStatus }));
+function readActiveRunId(): string | null {
+  try {
+    return localStorage.getItem(ACTIVE_RUN_KEY);
+  } catch {
+    return null;
+  }
 }
 
-function pendingRun(query: string): AgentRunResponse {
-  return {
-    id: 'pending',
-    query,
-    agentsExecuted: [],
-    steps: idleSteps(),
-    evidence: {
-      retrievedDocuments: [],
-      sqlResults: [],
-      searchResults: [],
-      citations: [],
-      confidenceScore: 0,
-    },
-    finalReport: '',
-    status: 'running',
-    createdAt: new Date().toISOString(),
-  };
+function writeActiveRunId(id: string | null) {
+  try {
+    if (id) localStorage.setItem(ACTIVE_RUN_KEY, id);
+    else localStorage.removeItem(ACTIVE_RUN_KEY);
+  } catch {
+    // Storage unavailable (private mode); the run still works for this session.
+  }
 }
 
-function applyStep(run: AgentRunResponse, name: AgentName, status: AgentStatus): AgentRunResponse {
-  return {
-    ...run,
-    steps: run.steps.map((s) => (s.agentName === name ? { ...s, status } : s)),
-  };
+// The backend only reports agents that have started; show the rest as idle so
+// the timeline always lists the full pipeline.
+function withIdleSteps(run: AgentRunResponse): AgentRunResponse {
+  const byName = new Map(run.steps.map((s) => [s.agentName, s]));
+  const steps: AgentStep[] = ALL_AGENTS.map(
+    (agentName) => byName.get(agentName) ?? { agentName, status: 'idle' as AgentStatus },
+  );
+  return { ...run, steps };
 }
 
+/**
+ * Research runs execute on the server as a background job, so navigating away
+ * never stops one. The active run id is remembered in localStorage and the run
+ * is polled by id; the TanStack Query cache outlives the page, so coming back
+ * shows live progress (or the finished report) immediately.
+ */
 export function useResearch() {
-  const [currentRun, setCurrentRun] = useState<AgentRunResponse | null>(null);
-  const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const queryClient = useQueryClient();
+  const [activeRunId, setActiveRunId] = useState<string | null>(readActiveRunId);
 
-  const clearTimers = useCallback(() => {
-    timersRef.current.forEach(clearTimeout);
-    timersRef.current = [];
+  const setActive = useCallback((id: string | null) => {
+    writeActiveRunId(id);
+    setActiveRunId(id);
   }, []);
 
-  useEffect(() => () => { timersRef.current.forEach(clearTimeout); }, []);
+  const { data: run, error: pollError } = useQuery({
+    queryKey: ['run', activeRunId],
+    queryFn: () => getAgentRun(activeRunId!),
+    enabled: Boolean(activeRunId),
+    refetchInterval: (query) => (query.state.data?.status === 'running' ? POLL_MS : false),
+    retry: (count, err) => !(err as { response?: { status?: number } })?.response && count < 3,
+  });
 
-  const { mutate, isPending, error } = useMutation({
+  // A remembered id the server no longer knows about (e.g. DB wiped): forget it.
+  const notFound = (pollError as { response?: { status?: number } } | null)?.response?.status === 404;
+  useEffect(() => {
+    if (notFound) setActive(null);
+  }, [notFound, setActive]);
+
+  const { mutate, isPending, error: submitError } = useMutation({
     mutationFn: submitResearchQuery,
-    // While the backend runs the graph, show an indeterminate timeline:
-    // planner first, then the evidence agents spin until the response lands.
-    onMutate: (query: string) => {
-      clearTimers();
-      setCurrentRun(pendingRun(query));
-
-      const schedule = (fn: () => void, ms: number) => {
-        timersRef.current.push(setTimeout(fn, ms));
-      };
-
-      schedule(() => setCurrentRun((r) => r && applyStep(r, 'planner', 'running')), 100);
-      schedule(() => setCurrentRun((r) => {
-        if (!r) return r;
-        let s = applyStep(r, 'planner', 'complete');
-        s = applyStep(s, 'rag', 'running');
-        s = applyStep(s, 'sql', 'running');
-        s = applyStep(s, 'search', 'running');
-        return s;
-      }), 1500);
-    },
-    // Replace the placeholder with the real run: actual steps, durations,
-    // evidence, and the generated report.
-    onSuccess: (run) => {
-      clearTimers();
-      setCurrentRun(run);
-    },
-    onError: () => {
-      clearTimers();
-      setCurrentRun((r) => {
-        if (!r) return r;
-        return {
-          ...r,
-          status: 'failed',
-          steps: r.steps.map((s) =>
-            s.status === 'running' ? { ...s, status: 'failed' as AgentStatus } : s,
-          ),
-        };
-      });
+    onSuccess: (started) => {
+      queryClient.setQueryData(['run', started.id], started);
+      setActive(started.id);
     },
   });
 
   const submitQuery = useCallback((query: string) => mutate(query), [mutate]);
 
-  const isRunning = isPending || currentRun?.status === 'running';
+  const currentRun = run ? withIdleSteps(run) : null;
+  const isRunning = isPending || run?.status === 'running';
 
-  return { submitQuery, currentRun, isRunning, error };
+  return { submitQuery, currentRun, isRunning, error: submitError };
 }

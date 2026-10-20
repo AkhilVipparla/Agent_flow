@@ -1,39 +1,23 @@
 from __future__ import annotations
 
+import asyncio
 import logging
-import os
 from typing import Any
 
 from app.services.qdrant_service import SearchResult, VectorSearchProtocol
+from app.services.request_context import current_owner
 
 logger = logging.getLogger(__name__)
 
-_vector_db: VectorSearchProtocol | None = None
-_embedder = None  # EmbeddingProtocol — typed loosely to avoid circular imports at module load
-
-
 def _get_embedder():
-    global _embedder
-    if _embedder is None:
-        from app.services.embedding_service import MockEmbeddingService
-        _embedder = MockEmbeddingService()
-    return _embedder
+    # Same singletons the upload path uses, so query vectors match stored ones.
+    from app.services.embedding_service import get_embedding_service
+    return get_embedding_service()
 
 
 def _get_vector_db() -> VectorSearchProtocol:
-    global _vector_db
-    if _vector_db is None:
-        use_mock = os.getenv("USE_MOCK_VECTOR_SEARCH", "true").lower() not in ("false", "0", "no")
-        if use_mock:
-            from app.services.qdrant_service import MockVectorSearch
-            logger.info("VectorSearchTool: using MockVectorSearch")
-            _vector_db = MockVectorSearch()
-        else:
-            from app.config import settings
-            from app.services.qdrant_service import QdrantVectorSearch
-            logger.info("VectorSearchTool: connecting to Qdrant at %s", settings.qdrant_url)
-            _vector_db = QdrantVectorSearch(url=settings.qdrant_url, collection=settings.qdrant_collection)
-    return _vector_db
+    from app.services.qdrant_service import get_vector_search_service
+    return get_vector_search_service()
 
 
 async def vector_search(
@@ -45,7 +29,10 @@ async def vector_search(
 
     Raises RuntimeError if the underlying search fails.
     """
-    vector = _get_embedder().embed_text(query)
+    vector = await asyncio.to_thread(_get_embedder().embed_text, query)
+    # Always scope to the caller's own documents; a caller-supplied filter can't widen this.
+    owner_filter = {"must": [{"key": "owner_id", "match": {"value": current_owner()}}]}
+    filters = {**(filters or {}), "must": [*((filters or {}).get("must") or []), *owner_filter["must"]]}
     try:
         return await _get_vector_db().similarity_search(vector, top_k=top_k, filters=filters)
     except Exception as exc:

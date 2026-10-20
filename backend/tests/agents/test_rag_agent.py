@@ -36,8 +36,8 @@ def _make_agent(llm_response: str = _SYNTHESISED) -> RAGAgent:
     mock_response.content = llm_response
     mock_llm.ainvoke = AsyncMock(return_value=mock_response)
 
-    with patch("app.agents.base_agent.get_llm", return_value=mock_llm):
-        agent = RAGAgent()
+    agent = RAGAgent()
+    agent._injected_llm = mock_llm
 
     return agent
 

@@ -11,7 +11,6 @@ from app.schemas.common import AgentStatus, CamelModel
 
 class ResearchRequest(CamelModel):
     query: str
-    uploaded_files: list[str] = []
 
 
 class AgentStepResponse(CamelModel):

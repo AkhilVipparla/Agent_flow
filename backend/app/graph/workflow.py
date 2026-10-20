@@ -6,7 +6,6 @@ from langgraph.graph import END, START, StateGraph
 
 from app.graph.nodes import (
     critic_node,
-    file_node,
     planner_node,
     rag_node,
     report_node,
@@ -20,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 # All nodes the planner can fan out to, declared explicitly so LangGraph can
 # validate the graph structure at compile time.
-_EVIDENCE_NODES = ("rag", "sql", "search", "file_analysis")
+_EVIDENCE_NODES = ("rag", "sql", "search")
 
 _PLANNER_PATH_MAP: dict[str, str] = {node: node for node in _EVIDENCE_NODES}
 
@@ -45,7 +44,6 @@ def build_graph():
     builder.add_node("rag", rag_node)
     builder.add_node("sql", sql_node)
     builder.add_node("search", search_node)
-    builder.add_node("file_analysis", file_node)
     builder.add_node("critic", critic_node)
     builder.add_node("report", report_node)
 

@@ -45,15 +45,15 @@ def test_multiple_agents_plan():
     assert len(result) == 2
 
 
-def test_file_maps_to_file_analysis_node():
-    result = route_after_planner(_state_with_plan(["file"]))
-    assert result == ["file_analysis"]
+def test_removed_file_agent_is_ignored_by_router():
+    # A stale or hallucinated "file" entry must not break routing; it falls back to rag.
+    assert route_after_planner(_state_with_plan(["file"])) == ["rag"]
 
 
 def test_all_agents_plan():
-    result = route_after_planner(_state_with_plan(["rag", "sql", "search", "file"]))
-    assert set(result) == {"rag", "sql", "search", "file_analysis"}
-    assert len(result) == 4
+    result = route_after_planner(_state_with_plan(["rag", "sql", "search"]))
+    assert set(result) == {"rag", "sql", "search"}
+    assert len(result) == 3
 
 
 def test_none_plan_defaults_to_rag():
@@ -111,5 +111,6 @@ def test_graph_has_expected_nodes():
     from app.graph.workflow import build_graph
     g = build_graph()
     node_names = set(g.nodes)
-    expected = {"planner", "rag", "sql", "search", "file_analysis", "critic", "report"}
+    expected = {"planner", "rag", "sql", "search", "critic", "report"}
+    assert "file_analysis" not in node_names
     assert expected.issubset(node_names)
