@@ -32,3 +32,4 @@ Thumbs.db
 backend/qdrant_data/
 .env.*
 !.env.example
+.vercel
