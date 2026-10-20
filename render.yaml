@@ -6,11 +6,12 @@ services:
     name: agentflow-api
     runtime: python
     rootDir: backend
-    plan: starter
+    # Free plan: sleeps after ~15 min idle (first request then takes ~30s). Use `starter` for always-on.
+    plan: free
     buildCommand: pip install -r requirements.txt
-    # Runs before each new version goes live; applies only migrations not yet recorded.
-    preDeployCommand: PYTHONPATH=. python migrations/apply.py
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips='*' --no-access-log
+    # preDeployCommand is paid-only, so migrations run at startup instead. They are tracked and
+    # locked, so only ones not yet recorded are applied. Move it to preDeployCommand on a paid plan.
+    startCommand: PYTHONPATH=. python migrations/apply.py && uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips='*' --no-access-log
     # Liveness only. GET /ready also checks the database and Qdrant, if you want a stricter probe.
     healthCheckPath: /health
     envVars:
