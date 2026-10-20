@@ -1,0 +1,47 @@
+# Render blueprint for the AgentFlow backend. See DEPLOYMENT.md.
+# Secrets are marked `sync: false`: Render asks you for them in the dashboard and they are
+# never stored in this file.
+services:
+  - type: web
+    name: agentflow-api
+    runtime: python
+    rootDir: backend
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    # Runs before each new version goes live; applies only migrations not yet recorded.
+    preDeployCommand: PYTHONPATH=. python migrations/apply.py
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips='*' --no-access-log
+    # Liveness only. GET /ready also checks the database and Qdrant, if you want a stricter probe.
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.7"
+      - key: ENVIRONMENT
+        value: production
+      - key: TRUST_PROXY_HEADERS
+        value: "true"
+      - key: ALLOW_PRIVATE_HOSTS
+        value: "false"
+      - key: REQUIRE_CUSTOMER_DB
+        value: "true"
+      - key: REQUIRE_USER_LLM_KEY
+        value: "true"
+      - key: USE_MOCK_SQL
+        value: "false"
+      - key: USE_MOCK_VECTOR_SEARCH
+        value: "false"
+      - key: USE_MOCK_SEARCH
+        value: "false"
+      - key: EMBEDDING_PROVIDER
+        value: hash
+      # Your public frontend URL, e.g. https://agentflow.vercel.app (no trailing slash).
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: QDRANT_URL
+        sync: false
+      - key: QDRANT_API_KEY
+        sync: false
+      - key: DEMO_DATABASE_URL
+        sync: false
