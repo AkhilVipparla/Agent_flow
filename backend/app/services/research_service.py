@@ -4,9 +4,10 @@ import asyncio
 import json
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
+from app.config import settings
 from app.graph.state import initial_state
 from app.graph.workflow import graph
 from app.schemas.common import AgentStatus
@@ -95,6 +96,22 @@ _background_tasks: set[asyncio.Task] = set()
 
 # run id -> visitor who started it. Live runs are only visible to their owner.
 _run_owner: dict[str, str] = {}
+
+
+async def drain_background_runs(grace_seconds: float = 10.0) -> None:
+    """On shutdown, give in-flight runs a moment to finish, then cancel the rest.
+
+    A cancelled run is marked failed by its own error handling, so it never stays
+    'running' in the database.
+    """
+    pending = list(_background_tasks)
+    if not pending:
+        return
+    _, still_running = await asyncio.wait(pending, timeout=grace_seconds)
+    for task in still_running:
+        task.cancel()
+    if still_running:
+        await asyncio.wait(still_running, timeout=5)
 
 
 def get_active_run(run_id: str) -> AgentRunResponse | None:
@@ -220,17 +237,18 @@ async def _execute_run(run_id: str, state: dict[str, Any], db: DatabaseProtocol)
     try:
         # stream_mode="values" yields the full merged state after every
         # superstep, so progress can be reported as each agent finishes.
-        async for snapshot in graph.astream(state, stream_mode="values"):
-            result = snapshot
-            plan = result.get("execution_plan")
-            run = run.model_copy(update={
-                "agents_executed": list(plan.agents) if plan is not None else [],
-                "steps": _progress_steps(result),
-                "evidence": _build_evidence(result),
-                "confidence_score": result.get("confidence_score", 0.0),
-            })
-            _active_runs[run_id] = run
-            await _safe_db(_write_run(run, db), run_id)
+        async with asyncio.timeout(settings.max_run_seconds):
+            async for snapshot in graph.astream(state, stream_mode="values"):
+                result = snapshot
+                plan = result.get("execution_plan")
+                run = run.model_copy(update={
+                    "agents_executed": list(plan.agents) if plan is not None else [],
+                    "steps": _progress_steps(result),
+                    "evidence": _build_evidence(result),
+                    "confidence_score": result.get("confidence_score", 0.0),
+                })
+                _active_runs[run_id] = run
+                await _safe_db(_write_run(run, db), run_id)
 
         final_report, report_fields = _render_report_markdown(result.get("final_report", ""))
         run = run.model_copy(update={
@@ -275,7 +293,7 @@ async def start_research(
         confidence_score=0.0,
         final_report="",
         status=AgentStatus.running,
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
     _active_runs[run_id] = run
     _run_owner[run_id] = current_owner()

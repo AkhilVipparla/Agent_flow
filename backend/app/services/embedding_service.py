@@ -29,9 +29,7 @@ class MockEmbeddingService:
 
 
 _STOPWORDS = frozenset(
-    "a an and are as at be by for from has have he her his i in is it its of on or she that the their "
-    "them they this to was were what when where which who whom why will with you your do does did how "
-    "about can could should would tell me my us we our".split()
+    ["a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "has", "have", "he", "her", "his", "i", "in", "is", "it", "its", "of", "on", "or", "she", "that", "the", "their", "them", "they", "this", "to", "was", "were", "what", "when", "where", "which", "who", "whom", "why", "will", "with", "you", "your", "do", "does", "did", "how", "about", "can", "could", "should", "would", "tell", "me", "my", "us", "we", "our"]
 )
 
 
@@ -59,10 +57,10 @@ class HashingEmbeddingService:
 
     def embed_text(self, text: str) -> list[float]:
         toks = _tokens(text)
-        feats = toks + [f"{a}_{b}" for a, b in zip(toks, toks[1:])]
+        feats = toks + [f"{a}_{b}" for a, b in zip(toks, toks[1:], strict=False)]
         vec = [0.0] * self._DIM
         for f in feats:
-            h = int.from_bytes(hashlib.md5(f.encode()).digest()[:8], "big")
+            h = int.from_bytes(hashlib.md5(f.encode(), usedforsecurity=False).digest()[:8], "big")
             # Unsigned: with only 384 buckets, random +/- signs let collisions
             # cancel real matches; unsigned collisions can only add noise.
             vec[h % self._DIM] += 1.0

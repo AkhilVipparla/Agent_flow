@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from app.schemas.common import AgentStatus
@@ -64,5 +64,5 @@ def _row_to_run(row: dict[str, Any]) -> AgentRunResponse:
         confidence_score=row.get("confidence_score", 0.0),
         final_report=row.get("final_report", ""),
         status=AgentStatus(row.get("status", "complete")),
-        created_at=created_at or datetime.now(timezone.utc),
+        created_at=created_at or datetime.now(UTC),
     )

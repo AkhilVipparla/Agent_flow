@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import logging
-from functools import lru_cache
 from dataclasses import dataclass, field
+from functools import lru_cache
 from typing import Any, Protocol, runtime_checkable
 
 logger = logging.getLogger(__name__)
@@ -30,6 +30,10 @@ class VectorSearchProtocol(Protocol):
     async def delete(self, id: str) -> None: ...
 
     async def ensure_collection(self) -> None: ...
+
+    async def ping(self) -> None: ...
+
+    async def close(self) -> None: ...
 
 
 # ---------------------------------------------------------------------------
@@ -139,6 +143,12 @@ class MockVectorSearch:
     async def ensure_collection(self) -> None:
         pass
 
+    async def ping(self) -> None:
+        pass
+
+    async def close(self) -> None:
+        pass
+
 
 # ---------------------------------------------------------------------------
 # Real — wraps qdrant-client; lazy init so import never crashes.
@@ -163,6 +173,15 @@ class QdrantVectorSearch:
             else:
                 self._client = AsyncQdrantClient(url=self._url, api_key=self._api_key or None)
         return self._client
+
+    async def ping(self) -> None:
+        """Cheap read used by the readiness probe; raises if the store is unreachable."""
+        await self._get_client().get_collections()
+
+    async def close(self) -> None:
+        if self._client is not None:
+            await self._client.close()
+            self._client = None
 
     # Vector size must match the embedding model (BAAI/bge-small-en-v1.5 → 384).
     _VECTOR_SIZE = 384

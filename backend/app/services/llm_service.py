@@ -3,7 +3,7 @@ from functools import lru_cache
 from langchain_openai import ChatOpenAI
 
 from app.config import settings
-from app.services.request_context import LLMCredentials, llm_credentials
+from app.services.request_context import LLMCredentials, llm_config_error, llm_credentials
 
 
 class LLMNotConfiguredError(RuntimeError):
@@ -25,6 +25,8 @@ def _default_llm() -> ChatOpenAI:
         model=settings.gemini_model,
         temperature=settings.gemini_temperature,
         max_tokens=settings.gemini_max_tokens,
+        timeout=120,
+        max_retries=1,
     )
 
 
@@ -43,11 +45,26 @@ def _user_llm(creds: LLMCredentials) -> ChatOpenAI:
     )
 
 
+def llm_unavailable_reason() -> str | None:
+    """Why research can't start for this request, or None if an LLM is available."""
+    if llm_credentials.get() is not None:
+        return None
+    problem = llm_config_error.get()
+    if problem:
+        return problem
+    if settings.require_user_llm_key:
+        return "Add your LLM API key in Settings to run research."
+    return None
+
+
 def get_llm() -> ChatOpenAI:
     """The visitor's own LLM if they supplied credentials, else the server default."""
     creds = llm_credentials.get()
     if creds is not None:
         return _user_llm(creds)
+    problem = llm_config_error.get()
+    if problem:
+        raise LLMNotConfiguredError(problem)
     if settings.require_user_llm_key:
         raise LLMNotConfiguredError("Add your LLM API key in Settings to run research.")
     return _default_llm()

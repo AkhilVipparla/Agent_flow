@@ -12,11 +12,16 @@ logger = logging.getLogger(__name__)
 
 
 def _read_pdf_sync(file_path: str) -> list[PDFPage]:
-    reader = pypdf.PdfReader(file_path)
-    pages: list[PDFPage] = []
-    for i, page in enumerate(reader.pages, 1):
-        text = page.extract_text() or ""
-        pages.append({"page": i, "text": text.strip()})
+    try:
+        reader = pypdf.PdfReader(file_path)
+        pages: list[PDFPage] = []
+        for i, page in enumerate(reader.pages, 1):
+            text = page.extract_text() or ""
+            pages.append({"page": i, "text": text.strip()})
+    except (pypdf.errors.PyPdfError, ValueError, OSError, KeyError, TypeError) as exc:
+        # A corrupt, truncated, encrypted or renamed file is a bad upload (HTTP 400), not a server fault.
+        logger.info("parse_pdf: unreadable PDF (%s)", type(exc).__name__)
+        raise ValueError("This file could not be read as a PDF. It may be corrupt, encrypted, or not a PDF.") from exc
     return pages
 
 
@@ -27,7 +32,7 @@ async def parse_pdf(file_path: str) -> list[PDFPage]:
     Raises FileNotFoundError for missing files, ValueError for non-PDF input.
     """
     path = Path(file_path)
-    if not path.exists():
+    if not await asyncio.to_thread(path.exists):
         raise FileNotFoundError(f"PDF file not found: {file_path}")
     if path.suffix.lower() != ".pdf":
         raise ValueError(f"Expected a .pdf file, got: {path.suffix!r}")

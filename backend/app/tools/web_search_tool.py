@@ -99,7 +99,7 @@ class TavilyWebSearch:
                 for item in raw
             ]
         except Exception as exc:
-            logger.warning("TavilyWebSearch failed: %s — returning empty results", exc)
+            logger.warning("TavilyWebSearch failed (%s) — returning empty results", type(exc).__name__)
             return []
 
 
@@ -107,21 +107,32 @@ class TavilyWebSearch:
 # Factory + public callable used by agents.
 # ---------------------------------------------------------------------------
 
-_tool: WebSearchProtocol | None = None
+class NoWebSearch:
+    """Used when no search key is available: returns nothing instead of fake results."""
+
+    async def search(self, query: str, max_results: int = 5) -> list[WebSearchResult]:
+        return []
 
 
 def get_web_search_tool() -> WebSearchProtocol:
+    """Pick the search backend for the current request.
+
+    Order: the user's own Tavily key, then mock results (development), then the
+    operator's key if explicitly allowed, else no search at all.
+    """
     from app.config import settings
+    from app.services.request_context import tavily_api_key
+
+    user_key = tavily_api_key.get()
+    if user_key:
+        return TavilyWebSearch(api_key=user_key)
     if settings.use_mock_search:
-        logger.info("WebSearchTool: using MockWebSearch")
         return MockWebSearch()
-    logger.info("WebSearchTool: using TavilyWebSearch")
-    return TavilyWebSearch(api_key=settings.tavily_api_key)
+    if settings.search_fallback_to_server_key and settings.tavily_api_key:
+        return TavilyWebSearch(api_key=settings.tavily_api_key)
+    return NoWebSearch()
 
 
 async def web_search(query: str, max_results: int = 5) -> list[WebSearchResult]:
     """Public callable for agents. Never call search APIs directly — use this."""
-    global _tool
-    if _tool is None:
-        _tool = get_web_search_tool()
-    return await _tool.search(query, max_results=max_results)
+    return await get_web_search_tool().search(query, max_results=max_results)

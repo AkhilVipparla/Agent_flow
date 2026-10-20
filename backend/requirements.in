@@ -1,0 +1,17 @@
+# Direct runtime dependencies (what the app imports or needs to run).
+# requirements.txt is the fully pinned resolution of this file: regenerate it, don't edit it.
+#   pip install --dry-run --ignore-installed --report r.json -r requirements.in
+asyncpg
+fastapi
+uvicorn[standard]
+pydantic
+pydantic-settings
+python-multipart      # FastAPI file uploads
+langgraph
+langchain-openai
+langchain-community   # Tavily search and FastEmbed wrappers
+qdrant-client
+fastembed             # only used when EMBEDDING_PROVIDER=fastembed
+pypdf
+openpyxl
+xlrd

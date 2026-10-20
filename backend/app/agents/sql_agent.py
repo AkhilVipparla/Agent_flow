@@ -6,7 +6,13 @@ from typing import Any
 
 from app.agents.base_agent import BaseAgent
 from app.graph.state import AgentState, append_sql_results
-from app.tools.sql_tool import CustomerDatabaseError, SQLExecutionError, SQLValidationError, execute_sql, get_schema_description
+from app.tools.sql_tool import (
+    CustomerDatabaseError,
+    SQLExecutionError,
+    SQLValidationError,
+    execute_sql,
+    get_schema_description,
+)
 
 logger = logging.getLogger(__name__)
 

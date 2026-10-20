@@ -1,0 +1,7 @@
+# Tooling for development and CI. Installed on top of requirements.txt.
+-r requirements.txt
+pytest
+pytest-asyncio
+httpx                 # required by FastAPI's TestClient
+ruff
+pip-audit

@@ -73,3 +73,23 @@ async def test_orphaned_running_runs_are_failed_on_startup(tmp_path):
     await research_service.fail_orphaned_runs(db)
     row = await db.fetch_one("SELECT status FROM agent_runs WHERE id = $1", ("stale",))
     assert row["status"] == "failed"
+
+
+@pytest.mark.asyncio
+async def test_run_that_exceeds_the_deadline_is_marked_failed(tmp_path, monkeypatch):
+    from app.config import settings
+
+    class _HangingGraph:
+        async def astream(self, state, stream_mode="values"):
+            yield dict(state)
+            await asyncio.sleep(30)  # an LLM call that never returns
+
+    monkeypatch.setattr(research_service, "graph", _HangingGraph())
+    monkeypatch.setattr(settings, "max_run_seconds", 1)
+    db = SqliteService(str(tmp_path / "t.db"))
+
+    run = await research_service.start_research("q", db)
+    await asyncio.gather(*research_service._background_tasks)
+
+    final = await get_run(run.id, db)
+    assert final.status == AgentStatus.failed

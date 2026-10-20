@@ -3,8 +3,9 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 
 from app.api.dependencies import DbDep
-from app.schemas.research import AgentRunResponse, ResearchRequest
 from app.config import settings
+from app.schemas.research import AgentRunResponse, ResearchRequest
+from app.services.llm_service import llm_unavailable_reason
 from app.services.research_service import count_running, start_research
 from app.services.runs_service import get_run, list_runs
 
@@ -13,6 +14,10 @@ router = APIRouter(tags=["research"])
 
 @router.post("/query", response_model=AgentRunResponse)
 async def submit_query(request: ResearchRequest, db: DbDep) -> AgentRunResponse:
+    # Say so up front, in plain words, instead of starting a run that is certain to fail.
+    reason = llm_unavailable_reason()
+    if reason:
+        raise HTTPException(status_code=400, detail=reason)
     if count_running() >= settings.max_concurrent_runs_per_visitor:
         raise HTTPException(
             status_code=429,

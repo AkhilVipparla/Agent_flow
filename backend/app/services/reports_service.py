@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from app.schemas.reports import ReportListResponse, ReportResponse, ReportSummary
@@ -64,4 +64,4 @@ def _parse_dt(value: Any) -> datetime:
         return value
     if isinstance(value, str):
         return datetime.fromisoformat(value.replace("Z", "+00:00"))
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)

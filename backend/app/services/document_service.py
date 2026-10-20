@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from app.schemas.documents import DocumentResponse, DocumentUploadResponse
 from app.services.embedding_service import EmbeddingProtocol
@@ -36,7 +36,7 @@ async def ingest_document(
     doc_id = str(uuid.uuid4())
     owner = current_owner()
     vectors = await asyncio.to_thread(embedder.embed_batch, chunks)
-    for i, (text, vector) in enumerate(zip(chunks, vectors)):
+    for i, (text, vector) in enumerate(zip(chunks, vectors, strict=True)):
         await vector_db.upsert(
             id=f"{doc_id}-chunk-{i}",
             vector=vector,
@@ -46,7 +46,7 @@ async def ingest_document(
                 "page": i + 1, "owner_id": owner,
             },
         )
-    created_at = datetime.now(timezone.utc)
+    created_at = datetime.now(UTC)
     await db.execute(
         """
         INSERT INTO documents (id, filename, file_type, chunk_count, created_at, owner_id)
@@ -65,7 +65,13 @@ async def ingest_document(
 
 async def list_documents(db: DatabaseProtocol) -> list[DocumentResponse]:
     rows = await db.fetch_many(
-        "SELECT * FROM documents WHERE owner_id = $1 ORDER BY created_at DESC", (current_owner(),)
+        """
+        SELECT d.*, (f.document_id IS NOT NULL) AS has_file
+        FROM documents d LEFT JOIN document_files f ON f.document_id = d.id
+        WHERE d.owner_id = $1
+        ORDER BY d.created_at DESC
+        """,
+        (current_owner(),),
     )
     return [
         DocumentResponse(
@@ -73,7 +79,8 @@ async def list_documents(db: DatabaseProtocol) -> list[DocumentResponse]:
             filename=row.get("filename", ""),
             file_type=row.get("file_type", ""),
             chunk_count=row.get("chunk_count", 0),
-            created_at=row.get("created_at") or datetime.now(timezone.utc),
+            created_at=row.get("created_at") or datetime.now(UTC),
+            has_file=bool(row.get("has_file")),
         )
         for row in rows
     ]
@@ -94,6 +101,8 @@ async def delete_document(
         return False
     for i in range(row.get("chunk_count", 0)):
         await vector_db.delete(f"{doc_id}-chunk-{i}")
+    # Explicit (not only ON DELETE CASCADE) so it also holds on SQLite, where foreign keys are off.
+    await db.execute("DELETE FROM document_files WHERE document_id = $1", (doc_id,))
     await db.execute("DELETE FROM documents WHERE id = $1 AND owner_id = $2", (doc_id, owner))
     return True
 
@@ -109,3 +118,27 @@ async def _extract_chunks(path: str, ext: str) -> list[str]:
         for row in sheet["rows"]:
             chunks.append(f"{header_line}: {', '.join(str(v) for v in row.values())}")
     return chunks or ["(empty document)"]
+
+
+async def store_document_file(db: DatabaseProtocol, doc_id: str, content: bytes, content_type: str) -> None:
+    """Keep the original upload so its owner can view it later."""
+    await db.execute(
+        "INSERT INTO document_files (document_id, content, content_type, size_bytes, created_at) "
+        "VALUES ($1, $2, $3, $4, $5)",
+        (doc_id, content, content_type, len(content), datetime.now(UTC)),
+    )
+
+
+async def get_document_file(db: DatabaseProtocol, doc_id: str) -> tuple[str, str, bytes] | None:
+    """(filename, content type, bytes) for one of the current user's documents, else None."""
+    row = await db.fetch_one(
+        """
+        SELECT d.filename, f.content_type, f.content
+        FROM documents d JOIN document_files f ON f.document_id = d.id
+        WHERE d.id = $1 AND d.owner_id = $2
+        """,
+        (doc_id, current_owner()),
+    )
+    if row is None:
+        return None
+    return row["filename"], row["content_type"], bytes(row["content"])

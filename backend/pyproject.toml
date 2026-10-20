@@ -1,0 +1,22 @@
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+extend-exclude = ["qdrant_data"]
+
+[tool.ruff.lint]
+# E/F: pycodestyle + pyflakes. I: import order. B: likely bugs. UP: modern syntax.
+# S: security (bandit). ASYNC: blocking calls in async code. SIM: needless complexity.
+select = ["E", "F", "I", "B", "UP", "S", "ASYNC", "SIM"]
+ignore = [
+    "E501",    # line length is handled by the formatter, not enforced as an error
+    "B008",    # FastAPI's Depends() in defaults is the framework's idiom
+    "SIM108",  # ternary is not always clearer
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106", "S107", "S608"]  # asserts, fixture passwords and SQL in tests are fine
+"migrations/**" = ["S608"]
+"demo/**" = ["S608"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]

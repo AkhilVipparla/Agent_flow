@@ -52,9 +52,16 @@ class Settings(BaseSettings):
     # separate database from database_url so no visitor data is exposed.
     demo_database_url: str = ""
 
-    # Every request must carry a valid X-Visitor-Id (the browser sends one). When false,
-    # requests without it share one "anonymous" owner (local development, tests).
-    require_visitor_id: bool = False
+    # "production" turns on secure cookies, HTTPS enforcement, HSTS headers and hides the
+    # interactive API docs, and refuses to start with unsafe settings.
+    environment: str = "development"
+    # Browser origins allowed to make state-changing requests (CSRF defence). In production
+    # set this to your public frontend URL(s), comma-separated.
+    allowed_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+    session_days: int = 14
+    # Use the server's own TAVILY_API_KEY when a user hasn't entered one. Off by default so
+    # web search never spends the operator's quota.
+    search_fallback_to_server_key: bool = False
 
     # Abuse protection (per client IP, in-memory, per process).
     rate_limit_enabled: bool = True
@@ -63,14 +70,27 @@ class Settings(BaseSettings):
     rate_limit_query_per_hour: int = 30
     rate_limit_upload_per_hour: int = 20
     rate_limit_test_per_minute: int = 10
+    rate_limit_login_per_minute: int = 10
+    rate_limit_signup_per_hour: int = 5
     # Trust X-Forwarded-For for the client IP. Enable only behind a proxy you control.
     trust_proxy_headers: bool = False
     max_concurrent_runs_per_visitor: int = 2
+    # A research run that exceeds this is marked failed, so a hung LLM call can't pin a run
+    # (and the user's concurrency slot) forever.
+    max_run_seconds: int = 480
     max_upload_mb: int = 10
 
     # Agent limits
     max_retry_count: int = 1
     confidence_threshold: float = 0.7
+
+    @property
+    def is_production(self) -> bool:
+        return self.environment.strip().lower() == "production"
+
+    @property
+    def origins(self) -> list[str]:
+        return [o.strip().rstrip("/") for o in self.allowed_origins.split(",") if o.strip()]
 
 
 settings = Settings()

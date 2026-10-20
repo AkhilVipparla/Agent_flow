@@ -24,7 +24,7 @@ def _client_ip(scope) -> str:
 
 def _rules_for(method: str, path: str) -> list[tuple[str, int, float]]:
     """(bucket name, max requests, window seconds) that apply to this request."""
-    if method == "OPTIONS" or path == "/health":
+    if method == "OPTIONS" or path in ("/health", "/ready"):
         return []
     rules = [("all", settings.rate_limit_per_minute, _MINUTE)]
     if method == "POST" and path == "/query":
@@ -34,6 +34,10 @@ def _rules_for(method: str, path: str) -> list[tuple[str, int, float]]:
         ]
     elif method == "POST" and path == "/documents/upload":
         rules.append(("upload-hour", settings.rate_limit_upload_per_hour, _HOUR))
+    elif method == "POST" and path == "/auth/login":
+        rules.append(("login-min", settings.rate_limit_login_per_minute, _MINUTE))
+    elif method == "POST" and path == "/auth/signup":
+        rules.append(("signup-hour", settings.rate_limit_signup_per_hour, _HOUR))
     elif method == "POST" and path == "/settings/test":
         rules.append(("test-min", settings.rate_limit_test_per_minute, _MINUTE))
     return rules
@@ -42,8 +46,8 @@ def _rules_for(method: str, path: str) -> list[tuple[str, int, float]]:
 class RateLimitMiddleware:
     """In-memory sliding-window limiter keyed by client IP.
 
-    Keyed by IP rather than visitor ID on purpose: a visitor ID is client-chosen,
-    so keying on it would let anyone dodge the limit by sending a new one.
+    Keyed by IP rather than by account on purpose: anyone can create new accounts,
+    so keying on the account would let them dodge the limit.
     State is per server process; run behind a shared store (e.g. Redis) if you
     scale to several instances.
     """
@@ -89,7 +93,6 @@ class RateLimitMiddleware:
             "headers": [
                 (b"content-type", b"application/json"),
                 (b"retry-after", str(retry_after).encode()),
-                (b"access-control-allow-origin", b"*"),
             ],
         })
         await send({"type": "http.response.body", "body": body})

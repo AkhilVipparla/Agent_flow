@@ -19,3 +19,5 @@ class DocumentResponse(CamelModel):
     file_type: str
     chunk_count: int
     created_at: datetime
+    # True when the original file is stored and can be previewed (PDFs uploaded since previews existed).
+    has_file: bool = False

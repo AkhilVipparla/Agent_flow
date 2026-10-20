@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 from typing import Generic, TypeVar
 
 from pydantic import BaseModel, ConfigDict
@@ -19,7 +19,7 @@ class CamelModel(BaseModel):
     model_config = ConfigDict(populate_by_name=True, alias_generator=to_camel)
 
 
-class AgentStatus(str, Enum):
+class AgentStatus(StrEnum):
     running = "running"
     complete = "complete"
     failed = "failed"

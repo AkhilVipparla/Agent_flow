@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import pytest
-
 from app.graph.router import route_after_critic, route_after_planner
 from app.graph.state import initial_state
 from app.schemas.agents import ExecutionPlan

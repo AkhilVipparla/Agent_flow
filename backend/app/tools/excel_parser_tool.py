@@ -59,7 +59,7 @@ def _read_csv_sync(file_path: str) -> list[SheetData]:
     with open(file_path, newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         headers = list(reader.fieldnames or [])
-        rows = [dict(row) for _, row in zip(range(_MAX_ROWS), reader)]
+        rows = [dict(row) for _, row in zip(range(_MAX_ROWS), reader, strict=False)]
     return [{"sheet": "Sheet1", "headers": headers, "rows": rows}]
 
 
@@ -70,7 +70,7 @@ async def parse_excel(file_path: str) -> list[SheetData]:
     Raises FileNotFoundError for missing files, ValueError for unsupported types.
     """
     path = Path(file_path)
-    if not path.exists():
+    if not await asyncio.to_thread(path.exists):
         raise FileNotFoundError(f"File not found: {file_path}")
 
     suffix = path.suffix.lower()

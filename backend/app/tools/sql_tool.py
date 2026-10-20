@@ -1,12 +1,8 @@
 from __future__ import annotations
 
 import re
-from typing import Any
-
-import asyncio
-import ipaddress
-import socket
 from functools import lru_cache
+from typing import Any
 from urllib.parse import urlsplit
 
 from app.services.net_guard import HostNotAllowedError, assert_public_host
@@ -17,7 +13,7 @@ from app.services.request_context import customer_db_url, use_demo_db
 # Safety constants
 # ---------------------------------------------------------------------------
 
-_ALLOWED_FIRST_TOKEN = "SELECT"
+_ALLOWED_FIRST_KEYWORD = "SELECT"
 
 _BLOCKED_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"\bINSERT\b",   re.IGNORECASE),
@@ -52,7 +48,7 @@ def _validate(sql: str) -> str:
     stripped = sql.strip().rstrip(";")
 
     first_token = stripped.split()[0].upper() if stripped.split() else ""
-    if first_token != _ALLOWED_FIRST_TOKEN:
+    if first_token != _ALLOWED_FIRST_KEYWORD:
         raise SQLValidationError(
             f"Only SELECT statements are permitted. Received first token: {first_token!r}"
         )
@@ -93,10 +89,28 @@ def validate_customer_db_url(url: str) -> str:
     return url
 
 
+_customer_services: dict[str, DatabaseProtocol] = {}
+
+
 @lru_cache(maxsize=8)
 def _customer_service(url: str) -> DatabaseProtocol:
     # Small pools and a read-only session: this is someone else's database.
-    return PostgresService(url, read_only=True, min_size=1, max_size=3)
+    service = PostgresService(url, read_only=True, min_size=1, max_size=3)
+    _customer_services[url] = service
+    return service
+
+
+def _customer_service_cache_values() -> list[DatabaseProtocol]:
+    return list(_customer_services.values())
+
+
+async def close_customer_pools() -> None:
+    """Close every cached user/demo database pool (called on shutdown)."""
+    services = _customer_service_cache_values()
+    _customer_service.cache_clear()
+    _customer_services.clear()
+    for service in services:
+        await service.close()
 
 
 def get_demo_service() -> DatabaseProtocol | None:
@@ -146,7 +160,7 @@ async def execute_sql(
     except (SQLValidationError, SQLExecutionError):
         raise
     except Exception:
-        raise SQLExecutionError("Query execution failed. The query may reference a non-existent table or column.")
+        raise SQLExecutionError("Query execution failed. The query may reference a non-existent table or column.") from None
 
 
 # ---------------------------------------------------------------------------
@@ -197,7 +211,7 @@ async def _introspect_sqlite(db: DatabaseProtocol) -> str:
     )
     lines = []
     for n in names:
-        cols = await db.fetch_many(f"SELECT name, type FROM pragma_table_info('{n['name']}')", limit=10000)
+        cols = await db.fetch_many("SELECT name, type FROM pragma_table_info($1)", (n["name"],), limit=10000)
         lines.append(f"  {n['name']} ({', '.join(c['name'] + ' ' + (c['type'] or '') for c in cols)})")
     return "Tables available:\n" + "\n".join(lines)
 

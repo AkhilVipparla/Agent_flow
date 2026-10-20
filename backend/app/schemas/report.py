@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from app.schemas.agents import Citation
 from pydantic import BaseModel, Field, field_validator
+
+from app.schemas.agents import Citation
 
 
 class LLMReportContent(BaseModel):

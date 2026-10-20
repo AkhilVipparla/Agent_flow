@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import re
 import sqlite3
 from datetime import datetime
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
@@ -215,6 +217,14 @@ CREATE TABLE IF NOT EXISTS documents (
     owner_id TEXT NOT NULL DEFAULT ''
 );
 
+CREATE TABLE IF NOT EXISTS document_files (
+    document_id TEXT PRIMARY KEY REFERENCES documents (id) ON DELETE CASCADE,
+    content BLOB NOT NULL,
+    content_type TEXT NOT NULL DEFAULT 'application/pdf',
+    size_bytes INTEGER NOT NULL,
+    created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS agent_runs (
     id TEXT PRIMARY KEY,
     query TEXT NOT NULL,
@@ -226,6 +236,21 @@ CREATE TABLE IF NOT EXISTS agent_runs (
     confidence_score REAL NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     owner_id TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS app_users (
+    id TEXT PRIMARY KEY,
+    email TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL DEFAULT '',
+    password_hash TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS app_sessions (
+    token_hash TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES app_users (id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS reports (
@@ -270,10 +295,9 @@ class SqliteService:
         try:
             conn.executescript(_SQLITE_SCHEMA)
             for table in ("documents", "agent_runs", "reports"):
-                try:  # databases created before per-visitor ownership lack the column
-                    conn.execute(f"ALTER TABLE {table} ADD COLUMN owner_id TEXT NOT NULL DEFAULT ''")
-                except sqlite3.OperationalError:
-                    pass
+                # Databases created before per-visitor ownership lack the column.
+                with contextlib.suppress(sqlite3.OperationalError):
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN owner_id TEXT NOT NULL DEFAULT ''")  # noqa: S608
             conn.commit()
         finally:
             conn.close()
@@ -417,7 +441,10 @@ class PostgresService:
 # Factory
 # ---------------------------------------------------------------------------
 
+@lru_cache(maxsize=1)
 def get_database_service() -> DatabaseProtocol:
+    # Cached: one service (and one connection pool) for the whole process. Building a new
+    # one per call leaked a pool of connections on every request.
     from app.config import settings
     if settings.use_mock_sql:
         logger.info("DatabaseService: using MockDatabaseService")

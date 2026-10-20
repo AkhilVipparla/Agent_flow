@@ -7,7 +7,13 @@ from typing import Any
 from fastapi import APIRouter
 from fastapi.encoders import jsonable_encoder
 
-from app.services.request_context import customer_db_url, llm_credentials, use_demo_db
+from app.services.request_context import (
+    customer_db_url,
+    llm_config_error,
+    llm_credentials,
+    tavily_api_key,
+    use_demo_db,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["settings"])
@@ -22,7 +28,11 @@ _demo_cache: tuple[float, dict[str, Any]] | None = None
 @router.post("/settings/test")
 async def test_settings() -> dict:
     """Check the visitor's credentials (sent as headers) without running research."""
-    result: dict = {"llm": {"configured": False}, "database": {"configured": False}}
+    result: dict = {
+        "llm": {"configured": False},
+        "database": {"configured": False},
+        "search": {"configured": False},
+    }
 
     creds = llm_credentials.get()
     if creds is not None:
@@ -34,6 +44,23 @@ async def test_settings() -> dict:
         except Exception as exc:
             logger.warning("Settings test: LLM check failed (%s)", type(exc).__name__)
             result["llm"]["error"] = _safe_error(exc, [creds.api_key])
+
+    problem = llm_config_error.get()
+    if problem:
+        result["llm"] = {"configured": True, "ok": False, "error": problem}
+
+    search_key = tavily_api_key.get()
+    if search_key:
+        result["search"] = {"configured": True, "ok": False}
+        try:
+            # Called directly (not through web_search) so a bad key surfaces as an error
+            # instead of being swallowed into an empty result list.
+            from langchain_community.utilities.tavily_search import TavilySearchAPIWrapper
+            await TavilySearchAPIWrapper(tavily_api_key=search_key).results_async("connection test", max_results=1)
+            result["search"]["ok"] = True
+        except Exception as exc:
+            logger.warning("Settings test: web search check failed (%s)", type(exc).__name__)
+            result["search"]["error"] = _safe_error(exc, [search_key])
 
     db_url = customer_db_url.get()
     if db_url or use_demo_db.get():
@@ -74,8 +101,11 @@ async def demo_database() -> dict:
         for name, cols in list(by_table.items())[:_MAX_TABLES]:
             # Table names come from information_schema, never from the visitor; still quoted.
             quoted = '"' + name.replace('"', '""') + '"'
-            count_row = await db.fetch_one(f"SELECT COUNT(*) AS n FROM {quoted}")
-            rows = await db.fetch_many(f"SELECT * FROM {quoted} LIMIT {_PREVIEW_ROWS}", limit=_PREVIEW_ROWS)
+            count_row = await db.fetch_one(f"SELECT COUNT(*) AS n FROM {quoted}")  # noqa: S608 - name from information_schema, quoted
+            rows = await db.fetch_many(
+                f"SELECT * FROM {quoted} LIMIT {_PREVIEW_ROWS}",  # noqa: S608 - name from information_schema, quoted
+                limit=_PREVIEW_ROWS,
+            )
             tables.append({
                 "name": name,
                 "columns": cols,
