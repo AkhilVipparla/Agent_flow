@@ -8,7 +8,9 @@ export interface AuthUser {
 
 export async function fetchCurrentUser(): Promise<AuthUser | null> {
   // Answers 200 with { user: null } when signed out, so page load never logs a failed request.
-  const { data } = await apiClient.get<{ user: AuthUser | null }>('/auth/session');
+  // A cold-starting free host can take a while to answer; give up on one attempt after 20s
+  // so the page can say what is happening instead of hanging.
+  const { data } = await apiClient.get<{ user: AuthUser | null }>('/auth/session', { timeout: 20_000 });
   return data.user;
 }
 

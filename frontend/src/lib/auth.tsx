@@ -13,6 +13,9 @@ import {
 interface AuthContextValue {
   user: AuthUser | null;
   isLoading: boolean;
+  /** The server could not be reached (as opposed to the visitor being signed out). */
+  unreachable: boolean;
+  retryConnection: () => void;
   login: (email: string, password: string) => Promise<void>;
   signup: (email: string, password: string, name: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -25,12 +28,20 @@ const ME_KEY = ['auth', 'me'];
 export function AuthProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
 
-  const { data: user = null, isLoading } = useQuery({
+  const {
+    data: user = null,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: ME_KEY,
     queryFn: fetchCurrentUser,
     staleTime: Infinity,
-    retry: false,
+    // A sleeping free host answers 502/timeouts for up to a minute: retry before giving up.
+    retry: 3,
+    retryDelay: 2000,
   });
+  const retryConnection = useCallback(() => void refetch(), [refetch]);
 
   // Keys saved in this browser belong to the signed-in account, not the device.
   useEffect(() => {
@@ -100,8 +111,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [queryClient, resetCaches]);
 
   const value = useMemo(
-    () => ({ user, isLoading, login, signup, logout }),
-    [user, isLoading, login, signup, logout],
+    () => ({ user, isLoading, unreachable: isError && !user, retryConnection, login, signup, logout }),
+    [user, isLoading, isError, retryConnection, login, signup, logout],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
