@@ -4,7 +4,7 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "rewrites": [
-    { "source": "/api/:path*", "destination": "https://agentflow-api-uvtd.onrender.com/:path*" },
+    { "source": "/api/:path*", "destination": "https://agentflow-api-gfn4.onrender.com/:path*" },
     { "source": "/((?!assets/|favicon.svg|robots.txt).*)", "destination": "/index.html" }
   ],
   "headers": [
