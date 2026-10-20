@@ -15,6 +15,12 @@ export async function uploadDocument(file: File): Promise<DocumentUploadResponse
   return data;
 }
 
+/** The original PDF as a Blob, fetched with the user's session so it stays private. */
+export async function fetchDocumentFile(id: string): Promise<Blob> {
+  const { data } = await apiClient.get<Blob>(`/documents/${id}/file`, { responseType: 'blob' });
+  return data;
+}
+
 export async function deleteDocument(id: string): Promise<void> {
   await apiClient.delete(`/documents/${id}`);
 }

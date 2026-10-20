@@ -1,3 +1,5 @@
+import { Button } from '../ui/Button';
+
 interface Props {
   content: string;
   filename?: string;
@@ -15,11 +17,8 @@ export function ReportExport({ content, filename = 'report' }: Props) {
   };
 
   return (
-    <button
-      onClick={handleExport}
-      className="px-3 py-1 text-xs font-medium rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 transition-colors"
-    >
+    <Button size="sm" variant="secondary" onClick={handleExport}>
       Export .md
-    </button>
+    </Button>
   );
 }

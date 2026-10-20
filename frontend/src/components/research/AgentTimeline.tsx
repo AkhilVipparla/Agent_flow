@@ -1,29 +1,42 @@
+import { m as motion } from 'framer-motion';
 import type { AgentStep } from '../../types/agent';
+import { stagger } from '../../lib/motion';
 import { AgentCard } from '../agents/AgentCard';
 
 interface Props {
   steps: AgentStep[];
+  // Agents the planner chose for this question; empty until planning finishes.
+  planned?: string[];
 }
 
-export function AgentTimeline({ steps }: Props) {
+const OPTIONAL_AGENTS = ['rag', 'sql', 'search'];
+
+export function AgentTimeline({ steps, planned = [] }: Props) {
   return (
-    <div className="flex flex-col h-full">
-      <h3 className="text-sm font-semibold text-gray-700 mb-3">Agent Timeline</h3>
+    <div className="flex h-full flex-col">
+      <h3 className="eyebrow mb-4">Agent timeline</h3>
       {steps.length === 0 ? (
-        <div className="flex-1 flex items-center justify-center">
-          <p className="text-sm text-gray-400 text-center px-4">Submit a query to see agent execution.</p>
+        <div className="flex flex-1 items-center justify-center">
+          <p className="px-4 text-center text-sm text-subtle">Run a question to watch the agents work.</p>
         </div>
       ) : (
-        <div className="flex flex-col gap-2 overflow-auto">
-          {steps.map((step) => (
+        <motion.ol variants={stagger(0.05)} initial="hidden" animate="show" className="overflow-auto">
+          {steps.map((step, index) => (
             <AgentCard
               key={step.agentName}
               agentName={step.agentName}
               status={step.status}
               durationMs={step.durationMs}
+              isLast={index === steps.length - 1}
+              skipped={
+                planned.length > 0 &&
+                step.status === 'idle' &&
+                OPTIONAL_AGENTS.includes(step.agentName) &&
+                !planned.includes(step.agentName)
+              }
             />
           ))}
-        </div>
+        </motion.ol>
       )}
     </div>
   );

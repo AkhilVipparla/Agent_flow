@@ -1,3 +1,185 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Fallback faces sized to match the web fonts, measured with canvas.measureText
+   (web font width / fallback width). While a web font loads, text wraps the same way, so
+   nothing jumps when it swaps in. Re-measure if the fonts change. */
+@font-face {
+  font-family: 'Instrument Serif Fallback';
+  src: local('Georgia');
+  size-adjust: 75.4%;
+}
+@font-face {
+  font-family: 'Instrument Serif Fallback';
+  src: local('Georgia Italic');
+  font-style: italic;
+  size-adjust: 77.6%;
+}
+@font-face {
+  font-family: 'Geist Fallback';
+  src: local('Arial');
+  size-adjust: 102.5%;
+}
+@font-face {
+  font-family: 'Geist Mono Fallback';
+  src: local('Courier New');
+  size-adjust: 100%;
+}
+
+/* Design tokens. Colors are space-separated RGB triplets so Tailwind can apply opacity
+   (e.g. border-line/15).
+
+   Direction: editorial. Warm paper and near-black ink, one signal orange used sparingly
+   (active state, focus, progress), hairline rules instead of shadows or glass. */
+@layer base {
+  :root {
+    color-scheme: light;
+    --bg: 244 241 234;          /* paper */
+    --surface: 251 249 244;
+    --surface-2: 236 232 222;
+    --fg: 20 20 18;             /* ink */
+    --muted: 92 89 82;
+    --subtle: 108 104 96;
+    --line: 20 20 18;
+    --accent: 190 56 0;         /* signal as text: 5:1 on paper */
+    --accent-solid: 255 90 31;  /* signal as a fill; ink text on it is 5.9:1 */
+    --accent-fg: 20 20 18;
+    --ok: 28 110 56;
+    --warn: 150 90 0;
+    --danger: 190 30 30;
+    --shadow: 20 20 18;
+  }
+
+  .dark {
+    color-scheme: dark;
+    --bg: 14 14 12;
+    --surface: 23 23 20;
+    --surface-2: 33 33 29;
+    --fg: 240 237 228;
+    --muted: 170 166 156;
+    --subtle: 140 136 126;
+    --line: 240 237 228;
+    --accent: 255 122 69;
+    --accent-solid: 255 107 61;
+    --accent-fg: 20 20 18;
+    --ok: 96 200 124;
+    --warn: 240 170 60;
+    --danger: 255 105 95;
+    --shadow: 0 0 0;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    @apply bg-bg text-fg font-sans;
+    font-feature-settings: 'ss01', 'cv11';
+    overflow-x: hidden;
+  }
+
+  /* Paper grain: a barely-there noise layer that stops large flat areas looking digital. */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    pointer-events: none;
+    opacity: 0.045;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  }
+  .dark body::before { opacity: 0.07; mix-blend-mode: screen; }
+
+  h1, h2, h3 {
+    letter-spacing: -0.015em;
+  }
+
+  ::selection {
+    background: rgb(var(--accent-solid) / 0.35);
+  }
+
+  :focus-visible {
+    outline: 2px solid rgb(var(--accent-solid));
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(var(--line) / 0.25) transparent;
+  }
+  *::-webkit-scrollbar { width: 10px; height: 10px; }
+  *::-webkit-scrollbar-thumb {
+    background: rgb(var(--line) / 0.22);
+    border-radius: 999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+}
+
+@layer components {
+  /* Flat, hairline-bordered surface. No blur, no shadow. */
+  .glass {
+    @apply bg-bg border border-line/15;
+  }
+
+  .card {
+    @apply rounded-xl bg-surface border border-line/[0.14];
+  }
+
+  /* Display type: the editorial serif used for headlines and big numbers. */
+  .display {
+    @apply font-serif font-normal;
+    letter-spacing: -0.01em;
+  }
+
+  /* Small mono label, used for section markers and metadata. */
+  .eyebrow {
+    @apply font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-subtle;
+  }
+}
+
+@layer utilities {
+  .text-balance { text-wrap: balance; }
+}
+
+/* Page enter: a short fade and rise whenever the route changes. Pure CSS (not JS) so it can
+   never stall and leave a page invisible. `both` applies the start state until it runs. */
+@keyframes page-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+.page-enter {
+  animation: page-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes shimmer {
+  100% { transform: translateX(100%); }
+}
+
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  @apply rounded-lg bg-line/10;
+}
+.skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgb(var(--line) / 0.08), transparent);
+  animation: shimmer 1.4s infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

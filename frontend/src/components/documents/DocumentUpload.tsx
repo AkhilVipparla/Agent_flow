@@ -1,4 +1,7 @@
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
+import { m as motion } from 'framer-motion';
+import { Spinner } from '../ui/Spinner';
+import { UploadIcon } from '../ui/icons';
 
 interface Props {
   onUpload: (file: File) => void;
@@ -7,6 +10,7 @@ interface Props {
 
 export function DocumentUpload({ onUpload, isUploading }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const [dragging, setDragging] = useState(false);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -18,30 +22,41 @@ export function DocumentUpload({ onUpload, isUploading }: Props) {
 
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
+    setDragging(false);
     const file = e.dataTransfer.files?.[0];
     if (file && !isUploading) onUpload(file);
   };
 
   return (
-    <div
+    <motion.div
+      role="button"
+      tabIndex={0}
+      aria-label="Upload a document"
       onClick={() => !isUploading && inputRef.current?.click()}
+      onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && !isUploading && inputRef.current?.click()}
       onDrop={handleDrop}
-      onDragOver={(e) => e.preventDefault()}
-      className={`flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed p-10 text-center cursor-pointer transition-colors ${
+      onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+      onDragLeave={() => setDragging(false)}
+      animate={{ scale: dragging ? 1.015 : 1 }}
+      transition={{ type: 'spring', stiffness: 400, damping: 28 }}
+      className={`flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed p-10 text-center transition-colors ${
         isUploading
-          ? 'border-gray-200 bg-gray-50 cursor-not-allowed'
-          : 'border-gray-300 hover:border-indigo-400 hover:bg-indigo-50'
+          ? 'cursor-not-allowed border-line/10 bg-line/[0.03]'
+          : dragging
+          ? 'border-accent-solid bg-accent-solid/10'
+          : 'border-line/30 hover:border-fg hover:bg-line/[0.03]'
       }`}
     >
-      <svg className="h-8 w-8 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-        strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M12 16V4m0 0L7 9m5-5 5 5" />
-        <path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3" />
-      </svg>
-      <p className="text-sm font-medium text-gray-700">
-        {isUploading ? 'Uploading…' : 'Click or drag a file to upload'}
+      <motion.div
+        animate={dragging ? { y: -4 } : { y: 0 }}
+        className="mb-1 grid h-14 w-14 place-items-center rounded-lg border border-line/20 text-fg"
+      >
+        {isUploading ? <Spinner className="h-6 w-6" /> : <UploadIcon className="h-7 w-7" />}
+      </motion.div>
+      <p className="text-[16px] font-medium">
+        {isUploading ? 'Reading your document...' : dragging ? 'Drop to upload' : 'Drop a file here, or click to browse'}
       </p>
-      <p className="text-xs text-gray-400">PDF, Excel (.xlsx / .xls), CSV — max 10 MB</p>
+      <p className="text-sm text-subtle">PDF, Excel (.xlsx / .xls) or CSV, up to 10 MB</p>
       <input
         ref={inputRef}
         type="file"
@@ -50,6 +65,6 @@ export function DocumentUpload({ onUpload, isUploading }: Props) {
         className="hidden"
         disabled={isUploading}
       />
-    </div>
+    </motion.div>
   );
 }

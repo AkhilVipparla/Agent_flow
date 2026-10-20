@@ -1,13 +1,14 @@
-import { useState } from 'react';
-import {
-  CUSTOM_PROVIDER_ID,
-  OTHER_MODEL,
-  findProvider,
-  inferProviderId,
-  providers,
-} from '../services/providers';
+import { useState, type ReactNode } from 'react';
+import { m as motion } from 'framer-motion';
 import { DemoDatabasePreview, useDemoDatabase } from '../components/DemoDatabasePreview';
+import { Button } from '../components/ui/Button';
+import { Field, SelectField } from '../components/ui/Field';
+import { CheckIcon, CloseIcon } from '../components/ui/icons';
+import { PageHeader } from '../components/ui/PageHeader';
+import { Segmented } from '../components/ui/Segmented';
+import { fadeUp, stagger } from '../lib/motion';
 import { apiClient } from '../services/api';
+import { errorMessage } from '../services/authService';
 import {
   clearCredentials,
   emptyCredentials,
@@ -15,75 +16,58 @@ import {
   saveCredentials,
   type StoredCredentials,
 } from '../services/credentials';
+import {
+  CUSTOM_PROVIDER_ID,
+  OTHER_MODEL,
+  findProvider,
+  inferProviderId,
+  providers,
+} from '../services/providers';
+
+interface CheckResult {
+  configured: boolean;
+  ok?: boolean;
+  error?: string;
+  tables?: number;
+  demo?: boolean;
+}
 
 interface TestResult {
-  llm: { configured: boolean; ok?: boolean; error?: string };
-  database: { configured: boolean; ok?: boolean; error?: string; tables?: number; demo?: boolean };
+  llm: CheckResult;
+  search: CheckResult;
+  database: CheckResult;
 }
 
-const inputClass =
-  'w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500';
-const labelClass = 'block text-xs font-medium text-gray-600 mb-1';
-
-function Field({
-  label,
-  value,
-  onChange,
-  type = 'text',
-  placeholder,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  type?: string;
-  placeholder?: string;
-}) {
+function Section({ title, description, children }: { title: string; description: string; children: ReactNode }) {
   return (
-    <label className="block">
-      <span className={labelClass}>{label}</span>
-      <input
-        className={inputClass}
-        type={type}
-        value={value}
-        placeholder={placeholder}
-        autoComplete="off"
-        onChange={(e) => onChange(e.target.value)}
-      />
-    </label>
+    <motion.section variants={fadeUp} className="card p-6">
+      <h2 className="text-[19px] font-semibold">{title}</h2>
+      <p className="mb-5 mt-1 text-sm text-muted">{description}</p>
+      {children}
+    </motion.section>
   );
 }
 
-function Select({
-  label,
-  value,
-  onChange,
-  options,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  options: { value: string; label: string }[];
-}) {
-  return (
-    <label className="block">
-      <span className={labelClass}>{label}</span>
-      <select className={inputClass} value={value} onChange={(e) => onChange(e.target.value)}>
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>{o.label}</option>
-        ))}
-      </select>
-    </label>
-  );
-}
-
-function StatusLine({ name, result }: { name: string; result: TestResult['llm'] | TestResult['database'] }) {
-  if (!result.configured) return <p className="text-xs text-gray-500">{name}: not configured</p>;
-  if (result.ok) {
-    const tables = 'tables' in result && result.tables !== undefined ? ` (${result.tables} tables found)` : '';
-    const demo = 'demo' in result && result.demo ? ' to the demo database' : '';
-    return <p className="text-xs text-green-700">{name}: connected{demo}{tables}</p>;
+function StatusLine({ name, result }: { name: string; result: CheckResult }) {
+  if (!result.configured) {
+    return <p className="text-[13px] text-subtle">{name}: not set up</p>;
   }
-  return <p className="text-xs text-red-600">{name}: {result.error ?? 'failed'}</p>;
+  const ok = result.ok === true;
+  const detail = ok
+    ? `connected${result.demo ? ' to the demo database' : ''}${result.tables !== undefined ? ` (${result.tables} tables)` : ''}`
+    : result.error ?? 'failed';
+  return (
+    <motion.p
+      initial={{ opacity: 0, x: -6 }}
+      animate={{ opacity: 1, x: 0 }}
+      className={`flex items-start gap-2 text-[13px] ${ok ? 'text-ok' : 'text-danger'}`}
+    >
+      {ok ? <CheckIcon className="mt-0.5 h-4 w-4 flex-shrink-0" /> : <CloseIcon className="mt-0.5 h-4 w-4 flex-shrink-0" />}
+      <span>
+        <span className="font-medium">{name}:</span> {detail}
+      </span>
+    </motion.p>
+  );
 }
 
 export function SettingsPage() {
@@ -106,10 +90,20 @@ export function SettingsPage() {
   const [result, setResult] = useState<TestResult | null>(null);
   const [testError, setTestError] = useState<string | null>(null);
 
+  const touch = () => setSaved(false);
   const setLlm = (patch: Partial<StoredCredentials['llm']>) => {
     setCreds((c) => ({ ...c, llm: { ...c.llm, ...patch } }));
-    setSaved(false);
+    touch();
   };
+  const setDb = (patch: Partial<StoredCredentials['db']>) => {
+    setCreds((c) => ({ ...c, db: { ...c.db, ...patch } }));
+    touch();
+  };
+  const setUseDemoDb = (useDemoDb: boolean) => {
+    setCreds((c) => ({ ...c, useDemoDb }));
+    touch();
+  };
+
   const provider = findProvider(creds.llm.provider);
   const isCustomProvider = creds.llm.provider === CUSTOM_PROVIDER_ID;
   const showModelInput = isCustomProvider || customModel;
@@ -131,16 +125,6 @@ export function SettingsPage() {
     }
   };
 
-  const setUseDemoDb = (useDemoDb: boolean) => {
-    setCreds((c) => ({ ...c, useDemoDb }));
-    setSaved(false);
-  };
-
-  const setDb = (patch: Partial<StoredCredentials['db']>) => {
-    setCreds((c) => ({ ...c, db: { ...c.db, ...patch } }));
-    setSaved(false);
-  };
-
   const save = () => {
     saveCredentials(creds, remember);
     setSaved(true);
@@ -149,6 +133,7 @@ export function SettingsPage() {
   const clearAll = () => {
     clearCredentials();
     setCreds(emptyCredentials);
+    setCustomModel(false);
     setRemember(false);
     setResult(null);
     setTestError(null);
@@ -165,26 +150,23 @@ export function SettingsPage() {
       const { data } = await apiClient.post<TestResult>('/settings/test');
       setResult(data);
     } catch (err) {
-      const detail = (err as { response?: { data?: { detail?: string } } }).response?.data?.detail;
-      setTestError(detail ?? 'Could not reach the server.');
+      setTestError(errorMessage(err, 'The connection test failed.'));
     } finally {
       setTesting(false);
     }
   };
 
   return (
-    <div className="p-6 max-w-2xl">
-      <h1 className="text-xl font-bold text-gray-900 mb-6">Settings</h1>
+    <div className="mx-auto max-w-2xl px-6 py-10 md:px-10">
+      <PageHeader
+        title="Settings"
+        subtitle="Bring your own keys. They stay in this browser, under your account, and are sent only with your own requests."
+      />
 
-      <div className="space-y-4">
-        <section className="rounded-xl border border-gray-200 bg-white p-5">
-          <h2 className="text-sm font-semibold text-gray-900 mb-1">LLM provider</h2>
-          <p className="text-sm text-gray-500 mb-4">
-            Any OpenAI-compatible API (OpenAI, Gemini, Groq, OpenRouter, a local server...). Your key is kept in
-            this browser and sent only with your own requests.
-          </p>
-          <div className="space-y-3">
-            <Select
+      <motion.div variants={stagger(0.08)} initial="hidden" animate="show" className="space-y-5">
+        <Section title="AI model" description="Any OpenAI-compatible provider: OpenAI, Claude, Gemini, Groq, OpenRouter, or your own server.">
+          <div className="space-y-4">
+            <SelectField
               label="Provider"
               value={creds.llm.provider}
               onChange={chooseProvider}
@@ -197,12 +179,12 @@ export function SettingsPage() {
               <Field label="Base URL" value={creds.llm.baseUrl} onChange={(v) => setLlm({ baseUrl: v })}
                 placeholder="https://my-provider.example.com/v1" />
             ) : (
-              <p className="text-xs text-gray-500">Endpoint: {creds.llm.baseUrl}</p>
+              <p className="text-xs text-subtle">Endpoint: {creds.llm.baseUrl}</p>
             )}
             <Field label="API key" type="password" value={creds.llm.apiKey} onChange={(v) => setLlm({ apiKey: v })}
               placeholder={provider?.keyHint ?? 'API key'} />
             {!isCustomProvider && provider && (
-              <Select
+              <SelectField
                 label="Model"
                 value={customModel ? OTHER_MODEL : creds.llm.model}
                 onChange={chooseModel}
@@ -218,93 +200,99 @@ export function SettingsPage() {
                 onChange={(v) => setLlm({ model: v })} placeholder="exact model id from your provider" />
             )}
           </div>
-        </section>
+        </Section>
 
-        <section className="rounded-xl border border-gray-200 bg-white p-5">
-          <h2 className="text-sm font-semibold text-gray-900 mb-1">Database for SQL questions</h2>
-          <p className="text-sm text-gray-500 mb-4">
-            The SQL agent reads these tables to answer questions. Connect your own PostgreSQL database, or try the
-            built-in demo data first.
-          </p>
+        <Section
+          title="Web search"
+          description="Add a Tavily key to let the agents look things up on the web. Without one, web search is simply skipped."
+        >
+          <Field
+            label="Tavily API key"
+            type="password"
+            value={creds.tavilyKey}
+            onChange={(v) => { setCreds((c) => ({ ...c, tavilyKey: v })); touch(); }}
+            placeholder="tvly-..."
+            hint="Get a free key at tavily.com."
+          />
+        </Section>
 
-          <div className="mb-4 inline-flex rounded-lg border border-gray-300 p-0.5 text-xs font-medium" role="group"
-            aria-label="Database source">
-            <button type="button" onClick={() => setUseDemoDb(false)} aria-pressed={!creds.useDemoDb}
-              className={`rounded-md px-3 py-1.5 transition-colors ${!creds.useDemoDb ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}>
-              My own database
-            </button>
-            <button type="button" onClick={() => setUseDemoDb(true)} aria-pressed={creds.useDemoDb}
-              disabled={!demoAvailable && !demoQuery.isLoading}
-              title={!demoAvailable && !demoQuery.isLoading ? 'The demo database is not available on this server' : undefined}
-              className={`rounded-md px-3 py-1.5 transition-colors disabled:opacity-40 ${creds.useDemoDb ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}>
-              Demo database
-            </button>
-          </div>
+        <Section
+          title="Database for SQL questions"
+          description="The SQL agent reads these tables to answer questions. Connect your own PostgreSQL database, or try the demo data first."
+        >
+          <Segmented<'own' | 'demo'>
+            label="Database source"
+            value={creds.useDemoDb ? 'demo' : 'own'}
+            onChange={(v) => setUseDemoDb(v === 'demo')}
+            className="mb-5"
+            options={[
+              { value: 'own', label: 'My own database' },
+              {
+                value: 'demo',
+                label: 'Demo database',
+                disabled: !demoAvailable && !demoQuery.isLoading,
+                title: !demoAvailable && !demoQuery.isLoading ? 'The demo database is not available on this server' : undefined,
+              },
+            ]}
+          />
 
           {creds.useDemoDb ? (
             <DemoDatabasePreview />
           ) : (
-            <>
-              <p className="text-sm text-gray-500 mb-4">
+            <div className="space-y-4">
+              <p className="text-sm text-muted">
                 Use a read-only database user. The connection is opened read-only, and any table or column names work.
               </p>
-              <div className="grid grid-cols-3 gap-3">
-                <div className="col-span-2">
-                  <Field label="Host" value={creds.db.host} onChange={(v) => setDb({ host: v })}
-                    placeholder="db.example.com" />
-                </div>
+              <div className="grid grid-cols-3 gap-4">
+                <Field className="col-span-2" label="Host" value={creds.db.host} onChange={(v) => setDb({ host: v })}
+                  placeholder="db.example.com" />
                 <Field label="Port" value={creds.db.port} onChange={(v) => setDb({ port: v })} />
-                <div className="col-span-3">
-                  <Field label="Database" value={creds.db.database} onChange={(v) => setDb({ database: v })} />
-                </div>
-                <div className="col-span-3 sm:col-span-1">
-                  <Field label="User" value={creds.db.user} onChange={(v) => setDb({ user: v })} />
-                </div>
-                <div className="col-span-3 sm:col-span-2">
-                  <Field label="Password" type="password" value={creds.db.password}
-                    onChange={(v) => setDb({ password: v })} />
-                </div>
+                <Field className="col-span-3" label="Database" value={creds.db.database}
+                  onChange={(v) => setDb({ database: v })} />
+                <Field className="col-span-3 sm:col-span-1" label="User" value={creds.db.user}
+                  onChange={(v) => setDb({ user: v })} />
+                <Field className="col-span-3 sm:col-span-2" label="Password" type="password" value={creds.db.password}
+                  onChange={(v) => setDb({ password: v })} />
               </div>
-              <label className="mt-3 flex items-center gap-2 text-sm text-gray-600">
-                <input type="checkbox" checked={creds.db.ssl} onChange={(e) => setDb({ ssl: e.target.checked })} />
+              <label className="flex cursor-pointer items-center gap-2.5 text-sm text-muted">
+                <input type="checkbox" className="h-4 w-4 accent-[rgb(var(--accent))]" checked={creds.db.ssl}
+                  onChange={(e) => setDb({ ssl: e.target.checked })} />
                 Require SSL
               </label>
-            </>
+            </div>
           )}
-        </section>
+        </Section>
 
-        <section className="rounded-xl border border-gray-200 bg-white p-5">
-          <label className="flex items-center gap-2 text-sm text-gray-600">
-            <input type="checkbox" checked={remember}
-              onChange={(e) => { setRemember(e.target.checked); setSaved(false); }} />
+        <motion.section variants={fadeUp} className="card p-6">
+          <label className="flex cursor-pointer items-center gap-2.5 text-sm text-muted">
+            <input type="checkbox" className="h-4 w-4 accent-[rgb(var(--accent))]" checked={remember}
+              onChange={(e) => { setRemember(e.target.checked); touch(); }} />
             Remember on this device (otherwise cleared when you close the tab)
           </label>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <button onClick={save}
-              className="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors">
-              Save
-            </button>
-            <button onClick={test} disabled={testing}
-              className="px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition-colors">
-              {testing ? 'Testing...' : 'Save & test connection'}
-            </button>
-            <button onClick={clearAll}
-              className="px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-300 text-red-600 hover:bg-red-50 transition-colors">
-              Clear my keys
-            </button>
+
+          <div className="mt-5 flex flex-wrap gap-2.5">
+            <Button onClick={save}>Save</Button>
+            <Button variant="secondary" onClick={test} loading={testing}>Save and test</Button>
+            <Button variant="danger" onClick={clearAll}>Clear my keys</Button>
           </div>
-          <div className="mt-3 space-y-1" aria-live="polite">
-            {saved && !result && !testError && <p className="text-xs text-green-700">Saved in this browser.</p>}
-            {testError && <p className="text-xs text-red-600">{testError}</p>}
+
+          <div className="mt-4 space-y-1.5" aria-live="polite">
+            {saved && !result && !testError && (
+              <p className="flex items-center gap-2 text-[13px] text-ok">
+                <CheckIcon className="h-4 w-4" /> Saved in this browser.
+              </p>
+            )}
+            {testError && <p className="text-[13px] text-danger">{testError}</p>}
             {result && (
               <>
-                <StatusLine name="LLM" result={result.llm} />
+                <StatusLine name="AI model" result={result.llm} />
+                <StatusLine name="Web search" result={result.search} />
                 <StatusLine name="Database" result={result.database} />
               </>
             )}
           </div>
-        </section>
-      </div>
+        </motion.section>
+      </motion.div>
     </div>
   );
 }

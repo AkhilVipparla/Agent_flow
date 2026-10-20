@@ -6,6 +6,8 @@ export interface DocumentResponse {
   fileType: DocumentFileType;
   chunkCount: number;
   createdAt: string;
+  // The original file is stored and can be previewed (PDFs uploaded since previews were added).
+  hasFile: boolean;
 }
 
 export interface DocumentUploadResponse {

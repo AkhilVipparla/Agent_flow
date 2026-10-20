@@ -1,4 +1,9 @@
+import { m as motion } from 'framer-motion';
 import type { AgentRunResponse } from '../../types/research';
+import { Button } from '../ui/Button';
+import { Markdown } from '../ui/Markdown';
+import { Spinner } from '../ui/Spinner';
+import { easeApple } from '../../lib/motion';
 
 interface Props {
   run: AgentRunResponse | null;
@@ -6,14 +11,19 @@ interface Props {
 
 export function ReportViewer({ run }: Props) {
   if (!run || run.status !== 'complete') {
+    const running = run?.status === 'running';
+    const failed = run?.status === 'failed';
     return (
-      <div className="flex flex-col h-full">
-        <h3 className="text-sm font-semibold text-gray-700 mb-3">Report</h3>
-        <div className="flex-1 flex items-center justify-center rounded-xl border-2 border-dashed border-gray-200">
-          <p className="text-sm text-gray-400">
-            {run?.status === 'running'
-              ? 'Generating report…'
-              : 'Report will appear once all agents complete.'}
+      <div className="flex h-full flex-col">
+        <h3 className="eyebrow mb-3">Report</h3>
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-line/15 px-4">
+          {running && <Spinner className="h-5 w-5 text-accent" />}
+          <p className="text-center text-sm text-subtle">
+            {running
+              ? 'Writing your report...'
+              : failed
+              ? 'This run failed. Check your LLM settings and try again.'
+              : 'Your report appears here when the agents finish.'}
           </p>
         </div>
       </div>
@@ -32,24 +42,20 @@ export function ReportViewer({ run }: Props) {
   };
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between mb-3 flex-shrink-0">
-        <h3 className="text-sm font-semibold text-gray-700">Report</h3>
-        <button
-          onClick={handleExport}
-          className="px-3 py-1 text-xs font-medium rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 transition-colors"
-        >
-          Export .md
-        </button>
+    <div className="flex h-full flex-col">
+      <div className="mb-3 flex flex-shrink-0 items-center justify-between">
+        <h3 className="eyebrow">Report</h3>
+        <Button size="sm" variant="secondary" onClick={handleExport}>Export .md</Button>
       </div>
-      <div className="flex-1 overflow-auto">
-        <div className="rounded-xl border border-gray-100 bg-white p-5">
-          <p className="text-xs text-gray-400 mb-3">Query: {run.query}</p>
-          <div className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap font-sans">
-            {run.finalReport}
-          </div>
-        </div>
-      </div>
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, ease: easeApple }}
+        className="flex-1 overflow-auto"
+      >
+        <p className="mb-3 text-xs text-subtle">Question: {run.query}</p>
+        <Markdown text={run.finalReport} />
+      </motion.div>
     </div>
   );
 }

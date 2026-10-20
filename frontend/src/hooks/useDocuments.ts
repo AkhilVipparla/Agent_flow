@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { deleteDocument, listDocuments, uploadDocument } from '../services/documentsService';
+import { errorMessage } from '../services/authService';
 
 export function useDocuments() {
   const queryClient = useQueryClient();
@@ -28,6 +29,8 @@ export function useDocuments() {
     isLoading,
     uploadDocument: uploadMutation.mutate,
     isUploading: uploadMutation.isPending,
+    // Server messages like "No text could be extracted" or "File is larger than 10 MB".
+    uploadError: uploadMutation.error ? errorMessage(uploadMutation.error, 'Upload failed.') : null,
     deleteDocument: deleteMutation.mutate,
   };
 }

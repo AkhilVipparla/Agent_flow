@@ -1,4 +1,7 @@
+import { m as motion } from 'framer-motion';
 import type { ReportSummary } from '../../types/report';
+import { fadeUp } from '../../lib/motion';
+import { ChevronIcon } from '../ui/icons';
 
 interface Props {
   report: ReportSummary;
@@ -13,25 +16,23 @@ export function ReportCard({ report, onClick }: Props) {
     day: 'numeric',
   });
 
-  const scoreClass =
-    score >= 80 ? 'bg-green-100 text-green-700' :
-    score >= 60 ? 'bg-amber-100 text-amber-700' :
-                  'bg-red-100 text-red-700';
+  const tone = score >= 80 ? 'text-ok bg-ok/12' : score >= 60 ? 'text-warn bg-warn/12' : 'text-danger bg-danger/12';
 
   return (
-    <button
+    <motion.button
+      variants={fadeUp}
+      whileHover={{ y: -2 }}
+      whileTap={{ scale: 0.985 }}
+      transition={{ type: 'spring', stiffness: 400, damping: 30 }}
       onClick={onClick}
-      className="w-full text-left rounded-xl border border-gray-200 bg-white p-5 hover:border-indigo-300 hover:shadow-sm transition-all group"
+      className="card group flex h-full w-full flex-col p-5 text-left transition-colors hover:border-fg/40"
     >
-      <div className="flex items-start justify-between gap-3 mb-3">
-        <p className="text-sm font-semibold text-gray-900 leading-snug group-hover:text-indigo-700 transition-colors">
-          {report.query}
-        </p>
-        <span className={`flex-shrink-0 text-xs font-bold px-2 py-0.5 rounded-full ${scoreClass}`}>
-          {score}%
-        </span>
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <span className={`rounded-sm px-2 py-1 font-mono text-[11px] font-medium uppercase tracking-wider tabular-nums ${tone}`}>{score}% conf.</span>
+        <ChevronIcon className="h-4 w-4 text-subtle transition-transform group-hover:translate-x-0.5" />
       </div>
-      <p className="text-xs text-gray-400">{date}</p>
-    </button>
+      <p className="display line-clamp-3 flex-1 text-[22px] leading-[1.15]">{report.query}</p>
+      <p className="mt-4 text-xs text-subtle">{date}</p>
+    </motion.button>
   );
 }
