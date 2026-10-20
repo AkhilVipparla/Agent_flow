@@ -30,3 +30,5 @@ setup.md
 .DS_Store
 Thumbs.db
 backend/qdrant_data/
+.env.*
+!.env.example
