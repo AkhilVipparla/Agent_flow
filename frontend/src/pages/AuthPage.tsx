@@ -46,7 +46,7 @@ function Process() {
                 transition={{ duration: STAGE_MS / 1000, ease: 'linear' }}
               />
             )}
-            <div className={`flex items-baseline gap-4 py-3.5 transition-opacity duration-500 ${on ? 'opacity-100' : 'opacity-40'}`}>
+            <div className={`flex items-baseline gap-4 py-3.5 [@media(max-height:760px)]:py-2 transition-opacity duration-500 ${on ? 'opacity-100' : 'opacity-40'}`}>
               <span className={`w-6 font-mono text-[11px] transition-colors ${on ? 'text-[#FF7A45]' : 'text-white/70'}`}>
                 {stage.n}
               </span>
@@ -102,7 +102,7 @@ function BrandPanel() {
       </div>
 
       <div className="my-auto py-8 lg:py-6">
-        <h1 className="display text-[clamp(2.5rem,5.4vw,5.1rem)] leading-[0.95] tracking-[-0.02em]">
+        <h1 className="display text-[clamp(2.5rem,min(5.4vw,9vh),5.1rem)] leading-[0.95] tracking-[-0.02em]">
           <span className="block">{headlineWords.map((w, i) => word(w, i))}</span>
           <span className="block italic text-[#FF7A45]">
             {accentWords.map((w, i) => word(w, i + headlineWords.length))}
@@ -112,7 +112,7 @@ function BrandPanel() {
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.7, ease: easeApple, delay: 0.7 }}
-          className="mt-7 hidden max-w-md text-[17px] leading-relaxed text-white/65 lg:block"
+          className="mt-7 hidden max-w-md text-[17px] leading-relaxed text-white/65 lg:block lg:[@media(max-height:760px)]:hidden"
         >
           AgentFlow plans the research, searches your documents, queries your data and the web,
           checks its own work, and writes up what it found. With sources.
@@ -123,7 +123,7 @@ function BrandPanel() {
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.7, ease: easeApple, delay: 0.9 }}
-        className="hidden lg:[@media(min-height:760px)]:block"
+        className="hidden lg:block"
       >
         <Process />
         <p className="mt-4 font-mono text-[11px] uppercase tracking-[0.14em] text-white/45">
