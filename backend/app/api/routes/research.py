@@ -7,6 +7,7 @@ from app.config import settings
 from app.schemas.research import AgentRunResponse, ResearchRequest
 from app.services.llm_service import llm_unavailable_reason
 from app.services.research_service import count_running, start_research
+from app.tools.sql_tool import check_database
 from app.services.runs_service import get_run, list_runs
 
 router = APIRouter(tags=["research"])
@@ -18,6 +19,11 @@ async def submit_query(request: ResearchRequest, db: DbDep) -> AgentRunResponse:
     reason = llm_unavailable_reason()
     if reason:
         raise HTTPException(status_code=400, detail=reason)
+    # A database the visitor chose but that cannot be reached would otherwise be skipped
+    # without a word, and the answer would come from the web alone.
+    problem = await check_database()
+    if problem:
+        raise HTTPException(status_code=400, detail=problem)
     if count_running() >= settings.max_concurrent_runs_per_visitor:
         raise HTTPException(
             status_code=429,

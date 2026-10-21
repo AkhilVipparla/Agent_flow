@@ -37,4 +37,8 @@ class BaseAgent(ABC):
             return await self.run(state)
         except Exception as exc:
             logger.exception("%s failed: %s", self.name, exc)
-            return {"error": f"{self.name} failed: {exc}"}
+            # The exception text may carry internals, so the user-facing note stays generic.
+            return {
+                "error": f"{self.name} failed: {exc}",
+                "warnings": [f"The {self.name} step failed and was skipped."],
+            }

@@ -21,6 +21,9 @@ Rules:
 - Write an executive summary (3–5 sentences) that directly answers the research query.
 - List key findings as specific, evidence-backed statements. Each finding is one sentence.
 - Omit findings that are vague or unsupported by the evidence.
+- Figures from web search are public, general figures. Never present them as the user's own
+  data. If the database section has no results, say plainly that the answer does not reflect
+  the user's own data.
 
 Return only a single JSON object matching exactly this schema (no markdown fences, no extra text):
 {"executive_summary": "<3-5 sentence summary>", "key_findings": ["<finding sentence>", ...]}
@@ -39,6 +42,9 @@ Research Query: {query}
 
 [Web Search Results — Search Agent]
 {search_evidence}
+
+[Sources that were not available]
+{unavailable}
 
 Synthesise the evidence above into an executive summary and key findings.
 """
@@ -88,6 +94,8 @@ class ReportAgent(BaseAgent):
                     rag_evidence=_summarise_rag(state["retrieved_documents"]),
                     sql_evidence=_summarise_sql(state["sql_results"]),
                     search_evidence=_summarise_search(state["search_results"]),
+                    unavailable=chr(10).join(f"- {w}" for w in dict.fromkeys(state.get("warnings") or []))
+                    or "None.",
                 ),
             ),
         ]

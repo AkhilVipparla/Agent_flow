@@ -20,6 +20,9 @@ class AgentState(TypedDict):
     final_report: str
     retry_count: int
     error: str | None
+    # Plain-language notes about sources that could not be used (a database login that was
+    # rejected, a search that failed). They appear in the report so a gap is never silent.
+    warnings: Annotated[list[str], operator.add]
     # Written by CriticAgent; read by the graph router and PlannerAgent on retry.
     critic_decision: str | None
     critic_feedback: str
@@ -38,6 +41,7 @@ def initial_state(query: str) -> AgentState:
         final_report="",
         retry_count=0,
         error=None,
+        warnings=[],
         critic_decision=None,
         critic_feedback="",
     )
@@ -61,6 +65,10 @@ def increment_retry(current_count: int) -> dict[str, Any]:
 
 def set_error(message: str | None) -> dict[str, Any]:
     return {"error": message}
+
+
+def add_warning(message: str) -> dict[str, Any]:
+    return {"warnings": [message]}
 
 
 def append_retrieved_documents(items: list[EvidenceItem]) -> dict[str, Any]:

@@ -23,11 +23,22 @@ from app.services.request_context import current_owner
 logger = logging.getLogger(__name__)
 
 
-def _render_report_markdown(final_report_json: str) -> tuple[str, dict[str, Any]]:
+def _unique_warnings(result: dict[str, Any]) -> list[str]:
+    """The run's source notes, in order, without repeats (a retry can repeat a note)."""
+    seen: dict[str, None] = {}
+    for note in result.get("warnings") or []:
+        seen.setdefault(note, None)
+    return list(seen)
+
+
+def _render_report_markdown(
+    final_report_json: str, warnings: list[str] | None = None
+) -> tuple[str, dict[str, Any]]:
     """Convert the ReportOutput JSON written by ReportAgent into markdown.
 
     Returns (markdown, parsed_fields). Falls back to the raw string if it is
-    not the expected JSON payload.
+    not the expected JSON payload. Source problems are listed under "Data availability",
+    so a gap in the evidence is stated in the report rather than hidden.
     """
     try:
         parsed = json.loads(final_report_json)
@@ -41,6 +52,11 @@ def _render_report_markdown(final_report_json: str) -> tuple[str, dict[str, Any]
     if findings:
         lines += ["", "## Key Findings", ""]
         lines += [f"{i}. {finding}" for i, finding in enumerate(findings, 1)]
+    if warnings:
+        lines += ["", "## Data availability", ""]
+        lines += [f"- {note}" for note in warnings]
+        # The Reports page shows findings, not this markdown, so carry the notes there too.
+        parsed = {**parsed, "key_findings": [*findings, *(f"Note: {n}" for n in warnings)]}
     return "\n".join(lines), parsed
 
 
@@ -250,11 +266,15 @@ async def _execute_run(run_id: str, state: dict[str, Any], db: DatabaseProtocol)
                 _active_runs[run_id] = run
                 await _safe_db(_write_run(run, db), run_id)
 
-        final_report, report_fields = _render_report_markdown(result.get("final_report", ""))
+        final_report, report_fields = _render_report_markdown(
+            result.get("final_report", ""), _unique_warnings(result)
+        )
+        # A source that failed (a search, a database) is a note in the report, not a failed run.
+        # The run only fails when no report came out of it.
         run = run.model_copy(update={
             "steps": _build_steps(result),
             "final_report": final_report,
-            "status": AgentStatus.failed if result.get("error") else AgentStatus.complete,
+            "status": AgentStatus.complete if final_report.strip() else AgentStatus.failed,
         })
         _active_runs[run_id] = run
         await _safe_db(_write_run(run, db), run_id)

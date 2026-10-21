@@ -40,7 +40,15 @@ class SQLValidationError(ValueError):
 
 
 class SQLExecutionError(RuntimeError):
-    """Raised when a query fails at execution time; never leaks DB internals."""
+    """Raised when a query fails at execution time; never leaks DB internals.
+
+    `detail` is the database's own message. It is for the SQL agent to repair its query and
+    must never be shown to a user (it can name tables and columns).
+    """
+
+    def __init__(self, message: str, detail: str = "") -> None:
+        super().__init__(message)
+        self.detail = detail
 
 
 def _validate(sql: str) -> str:
@@ -159,8 +167,58 @@ async def execute_sql(
         return await _get_service().fetch_many(safe_sql, params=params)
     except (SQLValidationError, SQLExecutionError):
         raise
-    except Exception:
-        raise SQLExecutionError("Query execution failed. The query may reference a non-existent table or column.") from None
+    except Exception as exc:
+        raise SQLExecutionError(
+            "Query execution failed. The query may reference a non-existent table or column.",
+            detail=str(exc)[:300],
+        ) from None
+
+
+# ---------------------------------------------------------------------------
+# Connection check — run before a research job starts, so a wrong login is reported in
+# plain words instead of the SQL step quietly returning nothing.
+# ---------------------------------------------------------------------------
+
+_CHECK_TIMEOUT_SECONDS = 10
+
+
+def describe_connection_error(exc: BaseException) -> str:
+    """A short, safe explanation of why a database could not be used."""
+    import asyncpg
+
+    if isinstance(exc, CustomerDatabaseError):
+        return str(exc)
+    if isinstance(exc, (asyncpg.InvalidPasswordError, asyncpg.InvalidAuthorizationSpecificationError)):
+        return "The database rejected the user name or password (some hosts report a wrong database name this way too). Check them in Settings."
+    if isinstance(exc, asyncpg.InvalidCatalogNameError):
+        return "That database name does not exist on the server. Check the Database field in Settings."
+    if isinstance(exc, (TimeoutError, OSError)):
+        return (
+            "Could not reach the database host. Check the Host and Port in Settings, and that the "
+            "server accepts connections from the internet."
+        )
+    if isinstance(exc, (asyncpg.PostgresError, ValueError)) and "ssl" in str(exc).lower():
+        return "The database refused the connection. Try turning \"Require SSL\" on (or off) in Settings."
+    return "Could not connect to the database. Check the connection details in Settings."
+
+
+async def check_database() -> str | None:
+    """Try the database the next question would use. None means it works.
+
+    Returns a user-facing problem description otherwise. Nothing is checked when the request
+    has not chosen a database (local development falls back to the app's own).
+    """
+    import asyncio
+
+    if not (customer_db_url.get() or use_demo_db.get()):
+        return None
+    try:
+        service = _get_service()
+        async with asyncio.timeout(_CHECK_TIMEOUT_SECONDS):
+            await service.fetch_many("SELECT 1 AS ok", limit=1)
+    except Exception as exc:
+        return describe_connection_error(exc)
+    return None
 
 
 # ---------------------------------------------------------------------------

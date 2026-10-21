@@ -5,11 +5,12 @@ import re
 from typing import Any
 
 from app.agents.base_agent import BaseAgent
-from app.graph.state import AgentState, append_sql_results
+from app.graph.state import AgentState, add_warning, append_sql_results
 from app.tools.sql_tool import (
     CustomerDatabaseError,
     SQLExecutionError,
     SQLValidationError,
+    describe_connection_error,
     execute_sql,
     get_schema_description,
 )
@@ -26,10 +27,25 @@ Rules:
 - Use only tables and columns that appear in the schema above, spelled exactly as shown.
 - Do not use semicolons.
 - Use table aliases for clarity.
-- If the question cannot be answered from the schema, output exactly: UNSUPPORTED
+- The question may also ask for outside information (market trends, news, benchmarks). Other
+  tools handle that. Write SQL only for the part answerable from the data above, for example
+  "which category earns the most revenue" in a question that also asks about its online trend.
+- Revenue is not stored directly: compute it from quantity and price columns when both exist.
+- Output exactly UNSUPPORTED only when no part of the question can be answered from this schema.
 """
 
 _GENERATION_USER = "Business question: {query}"
+
+_REPAIR_USER = """Business question: {query}
+
+Your previous SQL failed.
+SQL: {sql}
+Problem: {problem}
+
+Write a corrected single SELECT statement. Output ONLY the raw SQL.
+"""
+
+_MAX_ATTEMPTS = 2
 
 _SUMMARISE_SYSTEM = """\
 You are a data analyst. You have executed a SQL query and received the results below. \
@@ -61,40 +77,59 @@ def _extract_sql(raw: str) -> str:
 class SQLAgent(BaseAgent):
     name = "sql"
 
+    async def _write_sql(self, schema: str, query: str, previous: str = "", problem: str = "") -> str:
+        user = (
+            _REPAIR_USER.format(query=query, sql=previous, problem=problem)
+            if previous
+            else _GENERATION_USER.format(query=query)
+        )
+        response = await self._llm.ainvoke([
+            ("system", _GENERATION_SYSTEM.format(schema=schema)),
+            ("human", user),
+        ])
+        return _extract_sql(response.content)
+
     async def run(self, state: AgentState) -> dict[str, Any]:
         query = state["query"]
 
-        # Step 1 — generate SQL against the live schema
+        # Step 1 - read the live schema
         try:
             schema = await get_schema_description()
         except CustomerDatabaseError as exc:
             logger.info("SQLAgent skipped: %s", exc)
-            return {}
+            return add_warning(f"Your database was not used: {exc}")
         except Exception as exc:
             logger.warning("SQLAgent: schema discovery failed: %s", exc)
-            return {"error": "sql_agent: could not read the database schema"}
-        gen_messages = [
-            ("system", _GENERATION_SYSTEM.format(schema=schema)),
-            ("human", _GENERATION_USER.format(query=query)),
-        ]
-        gen_response = await self._llm.ainvoke(gen_messages)
-        raw_sql = _extract_sql(gen_response.content)
+            return {
+                "error": "sql_agent: could not read the database schema",
+                "warnings": [describe_connection_error(exc)],
+            }
 
-        if raw_sql.strip().upper() == "UNSUPPORTED":
-            logger.info("SQLAgent: query deemed unsupported by schema: %r", query)
-            return {}
-
-        logger.debug("SQLAgent generated SQL: %s", raw_sql)
-
-        # Step 2 — execute (validation happens inside execute_sql)
-        try:
-            rows = await execute_sql(raw_sql)
-        except SQLValidationError as exc:
-            logger.warning("SQLAgent validation failed: %s", exc)
-            return {"error": f"sql_agent validation: {exc}"}
-        except SQLExecutionError as exc:
-            logger.warning("SQLAgent execution failed: %s", exc)
-            return {"error": f"sql_agent execution: {exc}"}
+        # Step 2 - write and run the query. One repair attempt: if the database rejects the
+        # SQL, the model sees why and tries again before we give up.
+        raw_sql = ""
+        problem = ""
+        rows: list[dict[str, Any]] | None = None
+        for attempt in range(_MAX_ATTEMPTS):
+            raw_sql = await self._write_sql(schema, query, raw_sql if attempt else "", problem)
+            if raw_sql.strip().upper() == "UNSUPPORTED":
+                logger.info("SQLAgent: query deemed unsupported by schema: %r", query)
+                return add_warning("Your database has no tables that help answer this question.")
+            logger.debug("SQLAgent attempt %d SQL: %s", attempt + 1, raw_sql)
+            try:
+                rows = await execute_sql(raw_sql)
+                break
+            except SQLValidationError as exc:
+                logger.warning("SQLAgent validation failed: %s", exc)
+                problem = str(exc)
+            except SQLExecutionError as exc:
+                logger.warning("SQLAgent execution failed: %s", exc.detail or exc)
+                problem = exc.detail or str(exc)
+        if rows is None:
+            return {
+                "error": "sql_agent: could not produce a working query",
+                "warnings": ["The database could not be queried for this question (the generated query failed)."],
+            }
 
         if not rows:
             logger.info("SQLAgent: query returned no rows")
