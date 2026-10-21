@@ -41,7 +41,9 @@ def _user_llm(creds: LLMCredentials) -> ChatOpenAI:
         temperature=settings.gemini_temperature,
         max_tokens=settings.gemini_max_tokens,
         timeout=60,
-        max_retries=1,
+        # Free-tier keys are metered per minute. The client honours the provider's
+        # retry-after hint, so a few retries ride out a rate limit instead of failing a step.
+        max_retries=5,
     )
 
 

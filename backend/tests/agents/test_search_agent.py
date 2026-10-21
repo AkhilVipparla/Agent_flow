@@ -134,7 +134,34 @@ async def test_empty_search_returns_no_update():
     with patch("app.agents.search_agent.web_search", new=AsyncMock(return_value=[])):
         result = await agent.run(state)
 
-    assert result == {}
+    assert "search_results" not in result
+    assert "Tavily" in result["warnings"][0]
+
+
+@pytest.mark.asyncio
+async def test_results_are_kept_when_the_model_cannot_summarise_them():
+    agent = _make_agent()
+    agent._injected_llm.with_structured_output.return_value.ainvoke = AsyncMock(
+        side_effect=RuntimeError("Error code: 429 - rate limit reached")
+    )
+    state = initial_state("What is the state of enterprise AI in 2025?")
+
+    with patch("app.agents.search_agent.web_search", new=AsyncMock(return_value=MOCK_RESULTS)):
+        result = await agent.run(state)
+
+    output = result["search_results"][0]
+    assert len(output["sources"]) == len(MOCK_RESULTS)
+    assert output["findings"] and MOCK_RESULTS[0].title in output["findings"][0]
+    assert len(result["citations"]) == len(MOCK_RESULTS)
+    assert "rate limited" in result["warnings"][0]
+    assert "error" not in result
+
+
+def test_long_snippets_are_clipped_before_they_reach_the_model():
+    from app.agents.search_agent import _SNIPPET_CHARS, _format_results
+
+    long = WebSearchResult(title="t", url="https://example.com", snippet="word " * 2000)
+    assert len(_format_results([long])) < _SNIPPET_CHARS + 100
 
 
 @pytest.mark.asyncio

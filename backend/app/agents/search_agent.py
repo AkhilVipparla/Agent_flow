@@ -35,11 +35,31 @@ Search results:
 """
 
 
+# Long page excerpts add cost, not insight. Providers meter tokens per minute, and one
+# research run already makes many model calls, so keep what is sent for analysis short.
+_SNIPPET_CHARS = 600
+
+
+def _clip(text: str, limit: int) -> str:
+    text = " ".join(text.split())
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "..."
+
+
 def _format_results(results: list[WebSearchResult]) -> str:
     lines = []
     for i, r in enumerate(results, 1):
-        lines.append(f"[{i}] {r.title}\nURL: {r.url}\nSnippet: {r.snippet}")
-    return "\n\n".join(lines)
+        lines.append(
+            f"[{i}] {r.title}{chr(10)}URL: {r.url}{chr(10)}Snippet: {_clip(r.snippet, _SNIPPET_CHARS)}"
+        )
+    return (chr(10) * 2).join(lines)
+
+
+def _unsummarised(results: list[WebSearchResult]) -> LLMSearchAnalysis:
+    """Findings taken straight from the pages, for when the model cannot summarise them."""
+    return LLMSearchAnalysis(
+        findings=[f"{r.title}: {_clip(r.snippet, 220)}" for r in results if r.snippet],
+        confidence=0.4,
+    )
 
 
 def _build_citations(results: list[WebSearchResult]) -> list[Citation]:
@@ -68,7 +88,7 @@ class SearchAgent(BaseAgent):
 
         if not results:
             logger.warning("SearchAgent: no results returned for query: %r", query)
-            return {}
+            return {"warnings": ["Web search returned no results. Check your Tavily key in Settings."]}
 
         messages = [
             ("system", _ANALYSIS_SYSTEM),
@@ -81,7 +101,18 @@ class SearchAgent(BaseAgent):
             ),
         ]
 
-        analysis: LLMSearchAnalysis = await self._structured_llm.ainvoke(messages)
+        warnings: list[str] = []
+        try:
+            analysis: LLMSearchAnalysis = await self._structured_llm.ainvoke(messages)
+        except Exception as exc:
+            # The pages were found; only the model's summary failed (often a provider rate
+            # limit). Keep the sources rather than discard a search that already cost a call.
+            logger.warning("SearchAgent: could not summarise results (%s)", type(exc).__name__)
+            analysis = _unsummarised(results)
+            warnings.append(
+                "Web results were found, but your model could not summarise them "
+                "(it may be rate limited), so they are shown unsummarised."
+            )
 
         citations = _build_citations(results)
 
@@ -92,7 +123,10 @@ class SearchAgent(BaseAgent):
             confidence=analysis.confidence,
         )
 
-        return {
+        update = {
             **append_search_results([output.model_dump()]),
             **append_citations(citations),
         }
+        if warnings:
+            update["warnings"] = warnings
+        return update
