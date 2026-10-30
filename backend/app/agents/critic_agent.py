@@ -26,11 +26,21 @@ Evaluation criteria:
 - Gaps: Are there planned agents that returned no evidence?
 
 Scoring guide:
-- 0.9–1.0: Comprehensive, specific, directly relevant evidence from multiple sources.
-- 0.7–0.89: Mostly relevant with minor gaps; sufficient to write a reliable report.
-- 0.5–0.69: Partial coverage; important aspects of the query are unaddressed.
-- 0.3–0.49: Sparse or vague evidence; a retry is likely to improve quality.
-- 0.0–0.29: Little to no useful evidence collected.
+Score how well the collected evidence supports a useful answer to the query—not whether the research is exhaustive or perfect.
+
+- 0.90–1.00: Evidence is highly relevant and specific, and supports nearly all important parts of the query. Minor omissions are acceptable.
+- 0.75–0.89: Evidence supports a reliable answer to the main question. It may have minor gaps, limited source diversity, or incomplete coverage of secondary details.
+- 0.60–0.74: Evidence is useful and supports a meaningful answer to the main question, but has notable gaps or uncertainty.
+- 0.40–0.59: Evidence supports only part of the answer; important details are missing, or the evidence is vague or weakly connected to the query.
+- 0.20–0.39: Evidence is mostly incomplete or indirect, with little support for answering the main question.
+- 0.00–0.19: No useful, relevant evidence was collected.
+
+Calibration rules:
+- Do not require every planned agent to return evidence. Penalize a missing agent only when its evidence is important to answering the query.
+- A single relevant, specific source can support a good score; multiple sources are not required when the query does not need them.
+- Give credit for evidence that answers the main question even if some secondary details are missing.
+- Do not lower the score merely because the evidence is not exhaustive. Lower it when the available evidence does not support the answer.
+- Do not give a high score to vague, contradictory, or unsupported evidence.
 
 Decision rule:
 - PASS if confidence >= {threshold} or max retries reached.
